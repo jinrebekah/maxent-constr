@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 import cvxpy as cp
 import scipy
 
-import sys
-sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
+import sys 
+# sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
+sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
 
 from scipy.interpolate import CubicSpline
-from scipy.interpolate import make_smoothing_spline
 import math
 
 import matplotlib.pyplot as plt
@@ -51,8 +51,8 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    # if opt_method=='cvxpy':
-    #     als = np.logspace(7, 3, 160*4//8)
+    if opt_method=='cvxpy':
+        als = np.logspace(7, 3, 160*4//8)
     al = select_al(Gavgp, Kp, m, W, als, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect)
 
     # ---------- Calculate A with optimal al ----------
@@ -62,10 +62,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
         A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec)
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
-
-    # if math.floor(math.log(al, 10)) != 6 and opt_method == 'cvxpy':
-    #     plt.figure()
-    #     plt.plot(w, A)
+    
     return A
     
 def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_vec=None, inspect=False):
@@ -84,8 +81,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
             - 'cvx': Convex optimization method.
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraint B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraint B*A=b (Default: None).
-        plot_chi2 (bool): Plot log-log plot of chi2 vs. als including spline fit (for debugging constrained al selection).
-        plot_all (bool): Plot Q, S, and chi2 vs. als.
+        inspect : asdf
     Returns:
         al (float): Optimal alpha value.
     """
@@ -127,7 +123,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
     #     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
     #     i = k.argmax()
     # else:
-    fit = make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
+    fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
     k_range = max(k)-min(k)
     result = scipy.signal.find_peaks(k, prominence=k_range/5)
@@ -180,7 +176,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         ax[2].set_xlabel(r"$\alpha$")
         plt.show()
 
-    print("Alpha: ", f"{al:.2e}")
+    # print("Alpha: ", f"{al:.2e}")
     return al
     
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
@@ -331,7 +327,7 @@ def Q(A, G, K, m, W, al, return_all=False):
         return al*S - 0.5*chi2, S, chi2
     return (al*S - 0.5*chi2)
 
-# ================================= copied from Edwin's maxent.py =================================
+# ================================= from Edwin's maxent =================================
 
 def gen_grid(nw, x_min, x_max, w_x):
     """
