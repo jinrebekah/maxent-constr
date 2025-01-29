@@ -12,6 +12,8 @@ import util
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
+asdfasdfasdf
+
 class Sigma:
     # later on, could move the data processing stuff to another function/class but whatever
     def __init__(self, path, sigma_type, ws, dws, mdl, opt_method, bs=0):
