@@ -14,9 +14,9 @@ from tqdm import tqdm
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
-class cond_calculator:
-    def __init__(self, path, ws, dws):
-        # Store simulation parameters, prob change to a dict called params
+class sigma:
+    def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}):
+        # Store simulation parameters
         self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
             path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
         )
@@ -26,9 +26,19 @@ class cond_calculator:
         self.ws = ws
         self.dws = dws
         self.N = len(ws)
+        self.bs = bs
 
         self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
         self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
+
+        # Set solver settings (stupid)
+        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan'}
+        self.settings_xx = {**settings_xx_default, **settings_xx}
+        self.input_xx = self._get_settings_vals(self.settings_xx)
+
+        settings_xy_default = {'mdl': 'flat', 'opt_method': 'Bryan'}
+        self.settings_xy = {**settings_xy_default, **settings_xy}
+        self.input_xy = self._get_settings_vals(self.settings_xy)
 
         # Initialize sigma results storage
         self.results = {
@@ -61,6 +71,11 @@ class cond_calculator:
                 }
             }
         }
+        # Solve for sigma
+        if sigma_type == 'xx':
+            self.calc_sigma_xx()
+        if sigma_type == 'xy':
+            self.calc_sigma_xy()
 
     def _load_data(self, path):
         """Loads j-j data."""
@@ -88,11 +103,12 @@ class cond_calculator:
         chi_xx = 0.5 * (jxjxq0 + jyjyq0) # average over xx and yy to get avg longitudinal j-j
         chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
         chi_xx = np.real(chi_xx) # added for nflux != 0 data, should be purely real
+        # Possibly better to do real() and imag() after Maxent??
         # Get average transverse jj
-        jxjyq0 = jjq0[..., 1, 0]   # ***is this supposed to be minus or plus? idk but clearly one of them should be minus
+        jxjyq0 = jjq0[..., 1, 0]
         jyjxq0 = -jjq0[..., 0, 1]
         chi_xy = 0.5*(jxjyq0+jyjxq0)
-        chi_xy = np.concatenate((np.expand_dims(chi_xy[:, 0], axis=1), 0.5*(chi_xy[:, 1:] - chi_xy[:, :0:-1])), axis=1) # antisymmetrize bin by bin
+        chi_xy = np.concatenate((np.expand_dims(chi_xy[:, 0], axis=1), 0.5*(chi_xy[:, 1:] - chi_xy[:, :0:-1])), axis=1) # stupid but antisymmetrize bin by bin
         chi_xy = 1j*np.imag(chi_xy) # added for nflux != 0 data, should be purely imaginary
         return jjq0, chi_xx, chi_xy
     
@@ -106,12 +122,8 @@ class cond_calculator:
         opt_method = settings['opt_method']
         return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method}
 
-    def calc_sigma_xx(self, settings_xx={}, bs=0):
-        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan'}
-        self.settings_xx = {**settings_xx_default, **settings_xx}
-        self.input_xx = self._get_settings_vals(self.settings_xx)
-        self.bs = bs
-        if bs:
+    def calc_sigma_xx(self):
+        if self.bs:
             A_xx_bs = np.zeros((self.bs, self.N))
             re_sigmas_xx_bs = np.zeros((self.bs, self.N))
             for i in range(self.bs):
@@ -128,20 +140,15 @@ class cond_calculator:
         """Calculates sigma_xx for bin indices specified by resample."""
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
+        
         g = 2 * self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0
         A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect=False)
-        re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean())) * np.pi/2*2 #### final factor of 2 for range of w centered at (not starting at) 0
+        re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi) #### final factor of 2 for range of w centered at (not starting at) 0
         return re_sigmas_xx, A_xx
 
-    def calc_sigma_xy(self, settings_xx={}, settings_xy={}, bs=0):
-        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan'}
-        self.settings_xx = {**settings_xx_default, **settings_xx}
-        self.input_xx = self._get_settings_vals(self.settings_xx)
-        settings_xy_default = {'mdl': 'flat', 'opt_method': 'Bryan'}
-        self.settings_xy = {**settings_xy_default, **settings_xy}
-        self.input_xy = self._get_settings_vals(self.settings_xy)
-        self.bs = bs
+    def calc_sigma_xy(self):
         self.xs = np.linspace(-np.max(self.ws), np.max(self.ws), 1500) # ws used in Kramer's Kronig transform, change to make specifiable later
+        bs = self.bs
         if bs:
             re_sigmas_xy_bs = np.zeros((bs, len(self.xs)))
             im_sigmas_xy_bs, sigmas_sum_bs, A_sum_bs, re_sigmas_xx_bs, A_xx_bs = np.zeros((bs, self.N)), np.zeros((bs, self.N)), np.zeros((bs, self.N)), np.zeros((bs, self.N)), np.zeros((bs, self.N))
@@ -181,8 +188,10 @@ class cond_calculator:
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, A_sum, re_sigmas_xx, A_xx
 
+    
     def plot_sigma(self, sigma_type, plot_bs=False, bs_mode='errorbar'):
-        # Maybe later make an option to do things side by side
+        # Fix, very rudimentary
+        #  Maybe later make an option to do things side by side
         sigma_name_dict = {
             "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
             "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
@@ -217,6 +226,10 @@ class cond_calculator:
         ax.set_title(rf'U = {self.U}, $\beta$ = {self.beta}')
         plt.show()
     
+    def print_summary(self):
+        # Print summary of settings used in opt
+        pass
+
     def check_chi_xy(self):
         """Multiply im_sig_xy result by K and check residuals against chi_xy."""
         pass
