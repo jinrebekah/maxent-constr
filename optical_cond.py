@@ -27,6 +27,7 @@ class sigma:
         self.dws = dws
         self.N = len(ws)
         self.bs = bs
+        self.sigma_type = sigma_type
 
         self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
         self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
@@ -41,36 +42,37 @@ class sigma:
         self.input_xy = self._get_settings_vals(self.settings_xy)
 
         # Initialize sigma results storage
-        self.results = {
-            'xx': {
-                'bs': {
-                    'A_xx': None,
-                    're_sig_xx': None,
-                    're_sig_xx_mean': None,
-                    're_sig_xx_std': None    
-                },
-                'all_bins': {
-                    'A_xx': None,
-                    're_sig_xx': None
-                }
-            },
-            'xy': {
-                'bs': {
-                    'A_sum': None,
-                    'sig_sum': None,
-                    'im_sig_xy': None,
-                    're_sig_xy': None,
-                    're_sig_xy_mean': None,
-                    're_sig_xy_std': None
-                },
-                'all_bins': {
-                    'A_sum': None,
-                    'sig_sum': None,
-                    'im_sig_xy': None,
-                    're_sig_xy': None
-                }
-            }
-        }
+        self.results = {} # Just add the stuff we have lol
+        # self.results = {
+        #     'xx': {
+        #         'bs': {
+        #             'A_xx': None,
+        #             're_sig_xx': None,
+        #             're_sig_xx_mean': None,
+        #             're_sig_xx_std': None    
+        #         },
+        #         'all_bins': {
+        #             'A_xx': None,
+        #             're_sig_xx': None
+        #         }
+        #     },
+        #     'xy': {
+        #         'bs': {
+        #             'A_sum': None,
+        #             'sig_sum': None,
+        #             'im_sig_xy': None,
+        #             're_sig_xy': None,
+        #             're_sig_xy_mean': None,
+        #             're_sig_xy_std': None
+        #         },
+        #         'all_bins': {
+        #             'A_sum': None,
+        #             'sig_sum': None,
+        #             'im_sig_xy': None,
+        #             're_sig_xy': None
+        #         }
+        #     }
+        # }
         # Solve for sigma
         if sigma_type == 'xx':
             self.calc_sigma_xx()
@@ -129,12 +131,11 @@ class sigma:
             for i in range(self.bs):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xx_bs[i], A_xx_bs[i] = self._calc_sigma_xx_bins(resample)
-            self.results['xx']['bs']['re_sig_xx'], self.results['xx']['bs']['A_xx'] = re_sigmas_xx_bs, A_xx_bs
-            self.results['xx']['bs']['re_sig_xx_mean'], self.results['xx']['bs']['re_sig_xx_std'] = np.mean(re_sigmas_xx_bs, axis=0), np.std(re_sigmas_xx_bs, axis=0)
+            self.results['re_sig_xx'], self.results['A_xx'] = re_sigmas_xx_bs, A_xx_bs
         else:
             all_bins = np.arange(self.n_bin)
             re_sigmas_xx, A_xx = self._calc_sigma_xx_bins(all_bins)
-            self.results['xx']['all_bins']['re_sig_xx'], self.results['xx']['all_bins']['A_xx'] = re_sigmas_xx, A_xx
+            self.results['re_sig_xx'], self.results['A_xx'] = re_sigmas_xx, A_xx
     
     def _calc_sigma_xx_bins(self, resample):
         """Calculates sigma_xx for bin indices specified by resample."""
@@ -142,8 +143,8 @@ class sigma:
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         
         g = 2 * self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0
-        A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect=False)
-        re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi) #### final factor of 2 for range of w centered at (not starting at) 0
+        A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+        re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
         return re_sigmas_xx, A_xx
 
     def calc_sigma_xy(self):
@@ -155,15 +156,15 @@ class sigma:
             for i in tqdm(range(bs)):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xy_bs[i], im_sigmas_xy_bs[i], sigmas_sum_bs[i], A_sum_bs[i], re_sigmas_xx_bs[i], A_xx_bs[i] = self._calc_sigma_xy_bins(resample)
-            self.results['xx']['bs']['re_sig_xx'], self.results['xx']['bs']['A_xx'] = re_sigmas_xx_bs, A_xx_bs
-            self.results['xy']['bs']['re_sig_xy'], self.results['xy']['bs']['im_sig_xy'], self.results['xy']['bs']['sig_sum'], self.results['xy']['bs']['A_sum'] = re_sigmas_xy_bs, im_sigmas_xy_bs, sigmas_sum_bs, A_sum_bs
-            self.results['xx']['bs']['re_sig_xx_mean'], self.results['xx']['bs']['re_sig_xx_std'] = np.mean(re_sigmas_xx_bs, axis=0), np.std(re_sigmas_xx_bs, axis=0)
-            self.results['xy']['bs']['re_sig_xy_mean'], self.results['xy']['bs']['re_sig_xy_std'] = np.mean(re_sigmas_xy_bs, axis=0), np.std(re_sigmas_xy_bs, axis=0)
+            # self.results['re_sig_xx_bs'], self.results['A_xx_bs'] = re_sigmas_xx_bs, A_xx_bs
+            # self.results['re_sig_xy_bs'], self.results['im_sig_xy_bs'], self.results['sig_sum_bs'], self.results['A_sum_bs'] = re_sigmas_xy_bs, im_sigmas_xy_bs, sigmas_sum_bs, A_sum_bs
+            self.results['re_sig_xx'], self.results['A_xx'] = re_sigmas_xx_bs, A_xx_bs
+            self.results['sig_sum'],  self.results['im_sig_xy'], self.results['re_sig_xy'], self.results['A_sum'] = sigmas_sum_bs, im_sigmas_xy_bs, re_sigmas_xy_bs, A_sum_bs
         else:
             all_bins = np.arange(self.n_bin)
             re_sigmas_xy, im_sigmas_xy, sigmas_sum, A_sum, re_sigmas_xx, A_xx = self._calc_sigma_xy_bins(all_bins)
-            self.results['xx']['all_bins']['re_sig_xx'], self.results['xx']['all_bins']['A_xx'] = re_sigmas_xx, A_xx
-            self.results['xy']['all_bins']['re_sig_xy'], self.results['xy']['all_bins']['im_sig_xy'], self.results['xy']['all_bins']['sig_sum'], self.results['xy']['all_bins']['A_sum'] = re_sigmas_xy, im_sigmas_xy, sigmas_sum, A_sum
+            self.results['re_sig_xx'], self.results['A_xx'] = re_sigmas_xx, A_xx
+            self.results['sig_sum'],  self.results['im_sig_xy'], self.results['re_sig_xy'], self.results['A_sum'] = sigmas_sum, im_sigmas_xy, re_sigmas_xy, A_sum
     
     def _calc_sigma_xy_bins(self, resample):
         """Calculates sigma_xy for bin indices specified by resample."""
@@ -174,12 +175,12 @@ class sigma:
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
-            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect=False)
+            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
-            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b, inspect=False)
+            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
 
@@ -188,10 +189,8 @@ class sigma:
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, A_sum, re_sigmas_xx, A_xx
 
-    
-    def plot_sigma(self, sigma_type, plot_bs=False, bs_mode='errorbar'):
-        # Fix, very rudimentary
-        #  Maybe later make an option to do things side by side
+    def plot_results(self, sig_names='all', bs_mode='errorbar'):
+        # Change this to make it plot everything low key, depending on the calculation run
         sigma_name_dict = {
             "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
             "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
@@ -199,32 +198,55 @@ class sigma:
             "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
             "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
         }
-        sigma_cat = 'xx' if 'xx' in sigma_type else 'xy'
-        if sigma_type == 're_sig_xy':
+
+        if sig_names=='all':
+            # sig_names can be list of sigs to plot, or 'all' (default)
+            # Grab names of all sig arrays in results dict
+            sig_names = [key for key in self.results.keys() if 'sig' in key]
+        
+        num_plots = len(sig_names)
+        plot_size = plt.rcParams['figure.figsize']
+
+        fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]))
+        for i in range(num_plots):
+            self.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
+        
+        fig.suptitle(rf'U = {self.U}, $\beta$ = {self.beta}, bs = {self.bs}')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_sigma(self, ax, sigma_name, bs_mode='errorbar'):
+        sigma_name_dict = {
+            "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
+            "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
+            "re_sig_xy": r'Re[$\sigma_{xy}(\omega)$]',
+            "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
+            "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
+        }
+        if sigma_name == 're_sig_xy':
             ws = self.xs
         else:
             ws = self.ws
 
-        fig, ax = plt.subplots()
-        if plot_bs:
+        if self.bs:
             if bs_mode=='errorbar':
                 # Plot bootstrap mean with std error bars
-                sig = self.results[sigma_cat]['bs'][sigma_type+'_mean']
-                sig_err = self.results[sigma_cat]['bs'][sigma_type+'_std']
+                sig = np.mean(self.results[sigma_name], axis=0)
+                sig_err = np.std(self.results[sigma_name], axis=0)
                 ax.errorbar(ws, sig, yerr=sig_err, fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
             else:
                 # Plot all bootstraps on top of each other
-                sig_bs = self.results[sigma_cat]['bs'][sigma_type]
+                sig_bs = self.results[sigma_name]
                 for i in range(self.bs):
                     ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
         else:
             # Plot all bins result
-            sig = self.results['xx' if 'xx' in sigma_type else 'xy']['all_bins'][sigma_type]
+            sig = self.results[sigma_name]
             ax.plot(ws, sig)
+
         ax.set_xlabel(r'$\omega$')
-        ax.set_ylabel(sigma_name_dict[sigma_type])
-        ax.set_title(rf'U = {self.U}, $\beta$ = {self.beta}')
-        plt.show()
+        ax.set_ylabel(sigma_name_dict[sigma_name])
+        # ax.set_title(rf'U = {self.U}, $\beta$ = {self.beta}')
     
     def print_summary(self):
         # Print summary of settings used in opt
