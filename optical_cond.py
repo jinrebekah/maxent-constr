@@ -22,6 +22,7 @@ class sigma:
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
+        print(self.taus)
 
         self.ws = ws
         self.dws = dws
@@ -31,6 +32,7 @@ class sigma:
 
         self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
         self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
+        print(np.shape(self.chi_xx))
 
         # Set solver settings (stupid)
         settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan'}
@@ -142,7 +144,10 @@ class sigma:
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         
-        g = 2 * self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0
+        if self.settings_xx['krnl'] == 'symm':
+            g = 2 * self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0
+        else:
+            g = self.chi_xx[resample] / chiq0w0
         A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
         return re_sigmas_xx, A_xx
@@ -254,7 +259,35 @@ class sigma:
 
     def check_chi_xy(self):
         """Multiply im_sig_xy result by K and check residuals against chi_xy."""
-        pass
+        A_xy = self.results['A_sum'] - self.results['A_xx']
+        if self.bs:
+            A_xy = np.mean(A_xy, axis=0)
+        G = self.input_xy['krnl']@A_xy
+
+        # Plot
+        fig, ax = plt.subplots()
+        ax.plot(self.taus[:-1], -np.real(1j*np.mean(self.chi_xy, axis=0)))
+        ax.plot(self.taus[:-1], G)
+
+        # Just check for unconstrained case first
+        # if bootstrapped, just do the mean I suppose
+    
+    def check_chi_xx(self):
+        """Multiply im_sig_xy result by K and check residuals against chi_xy."""
+        A_xx = self.results['A_xx']
+        if self.bs:
+            A_xx = np.mean(A_xx, axis=0)
+        G = self.input_xx['krnl']@A_xx
+
+        # Plot
+        fig, ax = plt.subplots()
+        ax.plot(self.taus[:-1], np.mean(self.chi_xx, axis=0))
+        ax.plot(self.taus[:-1], G)
+
+        # Just check for unconstrained case first
+        # if bootstrapped, just do the mean I suppose
+
+
 
     # def plot_chi_xy(self):
     #     fig, ax = plt.subplots(figsize=(6, 2), ncols=3, layout='constrained')
