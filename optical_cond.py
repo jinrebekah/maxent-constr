@@ -10,6 +10,7 @@ import sys
 sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
 from tqdm import tqdm
+import math
 
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
@@ -120,7 +121,8 @@ class sigma:
         """Kinda dumb but this generates a dict with values corresponding to settings dict."""
         mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
         if 'krnl' in settings and settings['krnl'] == 'symm':
-            krnl = maxent.kernel_b(self.beta, self.taus[0 : self.L // 2 + 1], self.ws, sym=True)
+            krnl = maxent.kernel_b(self.beta, self.taus[0 : self.L // 2 + 1], self.ws[self.N//2:], sym=True)
+            mdl = mdl[self.N//2:]
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
@@ -143,13 +145,18 @@ class sigma:
         """Calculates sigma_xx for bin indices specified by resample."""
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
-        
         if self.settings_xx['krnl'] == 'symm':
-            g = 2 * self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0
+            # Adjusted factors of 2 bc this is stupid
+            g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
+            ws_maxent = self.ws[self.N//2:]   # only positive range of ws (N should be an even number)
+            A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method']) # No factor of 2 here
+            # Fill in the negative w half of A_xx
+            A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
             g = self.chi_xx[resample] / chiq0w0
-        A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+            A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
+
         return re_sigmas_xx, A_xx
 
     def calc_sigma_xy(self):
@@ -257,45 +264,94 @@ class sigma:
         # Print summary of settings used in opt
         pass
 
-    def check_chi_xy(self):
-        """Multiply im_sig_xy result by K and check residuals against chi_xy."""
+    def get_chi_xy(self, include_beta=True):
+        '''Reproduces G_xy(tau)'''
         A_xy = self.results['A_sum'] - self.results['A_xx']
         if self.bs:
             A_xy = np.mean(A_xy, axis=0)
-        G = self.input_xy['krnl']@A_xy
+        KA = self.input_xy['krnl']@A_xy
+        chi_xy = np.mean(self.chi_xy, axis=0)
+        if include_beta:    
+            chi_xy = np.append(chi_xy, -chi_xy[0])
+            KA = np.append(KA, -KA[0])
+        
+        f = np.append(self.chi_xx.mean(0), self.chi_xx.mean(0)[0]) - np.real(1j*np.append(self.chi_xy.mean(0), -self.chi_xy.mean(0)[0]))
+        norm = CubicSpline(self.taus, f).integrate(0, self.beta)
+        return KA*norm, chi_xy
 
-        # Plot
-        fig, ax = plt.subplots()
-        ax.plot(self.taus[:-1], -np.real(1j*np.mean(self.chi_xy, axis=0)))
-        ax.plot(self.taus[:-1], G)
-
-        # Just check for unconstrained case first
-        # if bootstrapped, just do the mean I suppose
-    
-    def check_chi_xx(self):
-        """Multiply im_sig_xy result by K and check residuals against chi_xy."""
+    def get_chi_xx(self, include_beta=True):
+        '''Reproduces G_xx(tau)'''
         A_xx = self.results['A_xx']
         if self.bs:
             A_xx = np.mean(A_xx, axis=0)
-        G = self.input_xx['krnl']@A_xx
+        chi_xx = np.mean(self.chi_xx, axis=0)
+        if self.settings_xx['krnl']=='symm':
+            # A_xx full length, but krnl is not 
+            KA = self.input_xx['krnl']@A_xx[self.N//2:]   # only for the first half of taus
+            KA = np.concatenate((KA, KA[math.ceil(self.L/2)-1::-1]))[:-1] # without including beta point
+        else:
+            KA = self.input_xx['krnl']@A_xx
+            
+        if include_beta:
+            KA = np.append(KA, KA[0])
+            chi_xx = np.append(chi_xx, chi_xx[0])
+        
+        f = self.chi_xx.mean(0)
+        norm = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
+        return KA*norm, chi_xx
 
-        # Plot
+    def check_chi_xy(self, ax=None):
+        KA, chi_xy = self.get_chi_xy()
+        if ax==None:
+            fig, ax = plt.subplots()
+        ax.plot(self.taus, -np.real(1j*chi_xy), label='chi_xy')
+        ax.plot(self.taus, KA, label='data')
+        ax.legend()
+    
+    def check_chi_xx(self):
+        KA, chi_xx = self.get_chi_xx()
         fig, ax = plt.subplots()
-        ax.plot(self.taus[:-1], np.mean(self.chi_xx, axis=0))
-        ax.plot(self.taus[:-1], G)
+        ax.plot(self.taus, chi_xx)
+        ax.plot(self.taus, KA)
 
         # Just check for unconstrained case first
         # if bootstrapped, just do the mean I suppose
 
+def compare_chi_tau(sigs, mode='xx'):
+    # Verify that sig1 and sig2 have the same data
+    sig1 = sigs[0]
+    taus = sig1.taus
+    U = sig1.U
+    beta = sig1.beta
+    bs = sig1.bs
+    if mode == 'xx':
+        _, chi = sig1.get_chi_xx()
+        chi_label = r'$\chi_{xx}(\tau)$'
+        KAs = [KA for KA, chi_xx in (sig.get_chi_xx() for sig in sigs)]
+        labels = [r'$KA$ Bryan' if sig.settings_xx['opt_method'] == 'Bryan' else r'$KA$ Constr.' for sig in sigs]
+    else:
+        _, chi = sig1.get_chi_xy()
+        chi = np.real(-1j*chi)
+        chi_label = r'$-i\chi_{xy}(\tau)$'
+        KAs = [KA for KA, chi_xy in (sig.get_chi_xy() for sig in sigs)]
+        labels = [r'$KA$ Bryan' if sig.settings_xy['opt_method'] == 'Bryan' else r'$KA$ Constr.' for sig in sigs]
+    resids = [KA-chi for KA in KAs]
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    colors = color_cycle[1:3]
 
+    plot_size = plt.rcParams['figure.figsize']
+    fig, ax = plt.subplots(ncols=2, figsize=(plot_size[0]*2, plot_size[1]*1.2), layout='constrained')
+    ax[0].plot(taus, chi, label=chi_label)
+    for i in range(len(sigs)): ax[0].plot(taus, KAs[i], label=labels[i])
+    ax[0].set_title('Data')
+    ax[0].legend()
 
-    # def plot_chi_xy(self):
-    #     fig, ax = plt.subplots(figsize=(6, 2), ncols=3, layout='constrained')
-    #     titles = [r"$ \langle j_x j_y \rangle $", r"$ \langle j_y j_x \rangle $", r"$\chi_{xy}$ (tot)"]
-    #     ax[0].plot(np.mean(np.imag(jxjyq0), axis=0))
-    #     ax[1].plot(np.mean(np.imag(jyjxq0), axis=0))
-    #     ax[2].plot(np.mean(np.imag(chi_xy), axis=0))
-    #     for i in range(3): 
-    #         ax[i].set_title(titles[i])
-    #         ax[i].set_xlabel(r'$\tau$')
-    #     plt.suptitle(rf"U = {U}, $\beta$ = {beta}")
+    for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i])
+    ax[1].axhline(0, color='gray', ls='--', alpha=0.5)
+    # ax[1].set_ylabel('Residuals')
+    ax[1].set_title('Residuals')
+
+    for i in range(2): ax[i].set_xlabel(r'$\tau$')
+    fig.suptitle(rf'U = {U}, $\beta$ = {beta}, bs = {bs}')
+    # plt.tight_layout()
+    plt.show()
