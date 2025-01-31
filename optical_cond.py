@@ -232,23 +232,6 @@ class sigma:
         # Print summary of settings used in opt
         pass
 
-    def get_chi_xy(self, include_beta=True):
-        '''Reproduces G_xy(tau)'''
-        # Get from df
-        # If bs, just average A_xy*norm for all bs
-        A_xy = (self.results['A_xy']*self.results['norm_sum']).mean()
-
-        KA = self.input_xy['krnl']@A_xy
-        chi_xy = np.mean(self.chi_xy, axis=0)
-        if include_beta:    
-            chi_xy = np.append(chi_xy, -chi_xy[0])
-            KA = np.append(KA, -KA[0])
-        
-        f = np.append(self.chi_xx.mean(0), self.chi_xx.mean(0)[0]) - np.real(1j*np.append(self.chi_xy.mean(0), -self.chi_xy.mean(0)[0]))
-        norm = CubicSpline(self.taus, f).integrate(0, self.beta)
-
-        return KA*norm, chi_xy
-
     def get_chi_xx(self, include_beta=True):
         '''Reproduces G_xx(tau)'''
         A_xx = (self.results['A_xx']*self.results['norm_xx']).mean()
@@ -265,9 +248,22 @@ class sigma:
             KA = np.append(KA, KA[0])
             chi_xx = np.append(chi_xx, chi_xx[0])
         
-        f = self.chi_xx.mean(0)
-        norm = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
-        return KA*norm, chi_xx
+        return KA, chi_xx
+    
+    def get_chi_xy(self, include_beta=True):
+        '''Reproduces G_xy(tau)'''
+        # Get from df
+        # If bs, just average A_xy*norm for all bs
+        A_xy = (self.results['A_xy']*self.results['norm_sum']).mean()
+
+        KA = self.input_xy['krnl']@A_xy
+        chi_xy = np.mean(self.chi_xy, axis=0)
+        if include_beta:    
+            chi_xy = np.append(chi_xy, -chi_xy[0])
+            KA = np.append(KA, -KA[0])
+        return KA, chi_xy
+
+    
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
