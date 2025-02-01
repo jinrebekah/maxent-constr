@@ -14,7 +14,7 @@ import math
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als=np.logspace(9, 1, 1+20*(9-1)), inspect=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -45,7 +45,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     W_cap = W_ratio_max*W.min()
     n_large = np.sum(W.max() > W_cap)
     if W.max() > W_cap:
-        print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
+        # print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
         W[W > W_cap] = W_cap # Set values of W above W_cap to W_cap
     Kp = np.dot(Uc, K)
     Gavgp = np.dot(Uc, Gavg)
@@ -53,19 +53,19 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     # ---------- Select optimal al ----------
     if opt_method=='cvxpy':
         als = np.logspace(7, 3, 160*4//8)
-    al = select_al(Gavgp, Kp, m, W, als, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect)
+    al = select_al(Gavgp, Kp, m, W, als, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
-        A, _ = find_A_Bryan(Gavgp, Kp, m, W, al)   #### issue with u_init here, come back to it
+        A, _ = find_A_Bryan(Gavgp, Kp, m, W, al, inspect=inspect_opt)   #### issue with u_init here, come back to it
     elif opt_method == 'cvxpy':
-        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec)
+        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
     
-    return A
+    return A, al
     
-def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_vec=None, inspect=False):
+def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
     """Selects optimal alpha using BT method. 
     
     BT method calculates chi2 for optimized spectrum A* for every al in als.
@@ -78,7 +78,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         als (array): Array of alpha values over which to maximize Q.
         opt_method (str): Optimization method used to maximize Q. Options are:
             - 'Bryan': Bryan's method.
-            - 'cvx': Convex optimization method.
+            - 'cvxpy': Convex optimization method.
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraint B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraint B*A=b (Default: None).
         inspect : asdf
@@ -109,34 +109,33 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         if opt_method == 'Bryan':
             u_init = us[i-1]
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
-            As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc)
+            As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
         elif opt_method == "cvxpy":        
-            As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec)
+            As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
         Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True)
 
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
     # If constrained, make spline fit smoother bc chi2 is much more noisy
     # And choose curvature peak occurring at smallest al (not necessarily max)
     order = als.argsort()
-    # if constr_matrix is None or opt_method == 'Bryan':
-    #     fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
-    #     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    #     i = k.argmax()
-    # else:
-    fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
-    k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    k_range = max(k)-min(k)
-    result = scipy.signal.find_peaks(k, prominence=k_range/5)
-    peaks = result[0]
-    i = peaks[-1]
-    
+    if constr_matrix is None or opt_method == 'Bryan':
+        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
+        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        i = k.argmax()
+    else:
+        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
+        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        k_range = max(k)-min(k)
+        result = scipy.signal.find_peaks(k, prominence=k_range/5)
+        peaks = result[0]
+        i = peaks[-1]
     al = als[i]
 
     # inspect=False
     # if math.floor(math.log(al, 10)) != 6 and opt_method == 'cvxpy':
     #     inspect=True
     ### Optional plots for debugging
-    if inspect:
+    if inspect_al:
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
         # Specifically for debugging (constrained) al selection.
         fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
@@ -179,7 +178,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
     # print("Alpha: ", f"{al:.2e}")
     return al
     
-def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
+def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
 
     Bryan's algorithm optimizes Q over a smaller singular space using unconstrained Newton's method (with Marquardt-Levenberg),
@@ -241,11 +240,13 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
     Q_old = Q_u(u, G, K, m, W, al, precalc, return_all=False)
 
     ### Search
+    import time
     small_dQ = 0
     for i in range(max_iter):
         grad = grad_Q(u, G, K, m, W, al, precalc)
         hess = hess_Q(u, G, K, m, W, al, precalc)
-        du = np.linalg.solve(hess-mu*np.identity(s), -grad)   # sign of mu term ambiguity, pretty sure it breaks if you change it though lol
+        
+        du = np.linalg.solve(hess-mu*np.identity(s), -grad)  # This is what's taking so long on my mac I guess
         step_size = get_step_size(u, du, precalc)
         
         Q_new = Q_u(u+du, G, K, m, W, al, precalc, return_all=False)
@@ -265,13 +266,22 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
         else:
             # Reject step, increase mu
             mu = np.clip(mu*mu_multiplier, mu_min, mu_max)
+        
+        if inspect:
+            format_string = "{:<20}{:<20}{:<20}{:<20}"
+            if i==0:
+                print(format_string.format(*['Iter', 'Q', 'Step size', 'Grad.']))
+                print("-" * 60)
+            print(format_string.format(*[i, Q_new, step_size, np.linalg.norm(grad)]))
+            
+            
     else:
         print(f"Reached max iterations {max_iter} :(")
-                
+        
     A = m*np.exp(U@u)
     return A, u
 
-def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None):
+def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None, inspect=False):
     """Calculate A for given alpha using cvxpy convex optimization package.
 
     Optimizes Q[A; al] directly over A (rather than reduced space).

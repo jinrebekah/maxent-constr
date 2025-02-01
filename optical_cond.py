@@ -124,21 +124,21 @@ class sigma:
             # Adjusted factors of 2 bc this is stupid
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
             ws_maxent = self.ws[self.N//2:]   # only positive range of ws (N should be an even number)
-            A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method']) # No factor of 2 here
+            A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method']) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
-                A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
-                A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b)
+                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
 
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0}
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx}
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -167,12 +167,12 @@ class sigma:
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
-            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False)
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
-            A_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b)
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
 
@@ -180,7 +180,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def plot_results(self, sig_names='all', bs_mode='errorbar'):
