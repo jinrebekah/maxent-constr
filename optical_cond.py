@@ -35,11 +35,11 @@ class sigma:
         self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
 
         # Set solver settings (stupid)
-        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan'}
+        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan', 'inspect_al': False}
         self.settings_xx = {**settings_xx_default, **settings_xx}
         self.input_xx = self._get_settings_vals(self.settings_xx)
 
-        settings_xy_default = {'mdl': 'flat', 'opt_method': 'Bryan'}
+        settings_xy_default = {'mdl': 'flat', 'opt_method': 'Bryan', 'inspect_al': False}
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
 
@@ -98,7 +98,8 @@ class sigma:
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
-        return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method}
+        inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
+        return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al}
 
     def calc_sigma_xx(self):
         if self.bs:
@@ -121,21 +122,23 @@ class sigma:
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         if self.settings_xx['krnl'] == 'symm':
-            # Adjusted factors of 2 bc this is stupid
+            # Symmetric krnl, with half tau and w range
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
             ws_maxent = self.ws[self.N//2:]   # only positive range of ws (N should be an even number)
-            A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method']) # No factor of 2 here
+            A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al']) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
+            # Full krnl
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
-                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+                # Unconstrained
+                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al'])
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
-                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b)
+                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b, inspect_al=self.input_xx['inspect_al'])
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
 
         debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx}
@@ -167,12 +170,13 @@ class sigma:
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False)
+            # Unconstrained
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False, inspect_al=self.input_xy['inspect_al'])
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b)
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b, smooth=True, inspect_al=self.input_xy['inspect_al'])
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
 
@@ -190,7 +194,7 @@ class sigma:
                 sig_names = ['re_sig_xx']
             else:
                 sig_names = ['re_sig_xx', 'sig_sum', 'im_sig_xy', 're_sig_xy']
-        
+
         num_plots = len(sig_names)
         plot_size = plt.rcParams['figure.figsize']
 
@@ -201,13 +205,17 @@ class sigma:
             for i in range(num_plots): self.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
         
         fig.suptitle(rf'U = {self.U}, $\beta$ = {self.beta}, bs = {self.bs}')
-        plt.tight_layout()
+        # plt.tight_layout()
         plt.show()
 
     def plot_sigma(self, ax, sigma_name, bs_mode='errorbar'):
+        # opt_method_dict = {
+        #     'cvxpy': 'Constr.',
+        #     'Bryan': 'Unconstr.'
+        # }
         sigma_name_dict = {
             "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
-            "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
+            # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
             "re_sig_xy": r'Re[$\sigma_{xy}(\omega)$]',
             "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
             "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
@@ -232,9 +240,14 @@ class sigma:
             # Plot all bins result
             sig = self.results[sigma_name][0]
             ax.plot(ws, sig)
-
+        # Annotate with opt_method in top left corner I guess
+        method = self.settings_xx['opt_method'] if 'xx' in sigma_name else self.settings_xy['opt_method']
+        K = self.settings_xx['krnl'] if 'xx' in sigma_name else self.settings_xy['krnl']
+        ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K, (0.04, 0.84), xycoords='axes fraction', fontsize=8, color='gray')
+        # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
         ax.set_xlabel(r'$\omega$')
         ax.set_ylabel(sigma_name_dict[sigma_name])
+
         # ax.set_title(rf'U = {self.U}, $\beta$ = {self.beta}')
     
     def print_summary(self):
