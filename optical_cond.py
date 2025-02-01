@@ -103,10 +103,11 @@ class sigma:
     def calc_sigma_xx(self):
         if self.bs:
             bs_list = []
-            for i in range(self.bs):
+            for i in tqdm(range(self.bs)):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(resample)
                 bs_dict = {'re_sig_xx': re_sigmas_xx, **debug_vals}
+                bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
             re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins)
@@ -128,7 +129,13 @@ class sigma:
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
             g = self.chi_xx[resample] / chiq0w0
-            A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+            if self.input_xx['opt_method'] == 'Bryan':
+                A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'])
+            else:
+                # Define symmetry constraint matrices for A_xx
+                b = np.zeros(self.N//2)
+                B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
+                A_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
 
         debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0}
@@ -188,8 +195,10 @@ class sigma:
         plot_size = plt.rcParams['figure.figsize']
 
         fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]))
-        for i in range(num_plots):
-            self.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
+        if num_plots==1:
+            self.plot_sigma(ax, sig_names[0], bs_mode=bs_mode)
+        else:
+            for i in range(num_plots): self.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
         
         fig.suptitle(rf'U = {self.U}, $\beta$ = {self.beta}, bs = {self.bs}')
         plt.tight_layout()
@@ -263,7 +272,6 @@ class sigma:
             KA = np.append(KA, -KA[0])
         return KA, chi_xy
 
-    
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
@@ -294,7 +302,7 @@ def compare_chi_tau(sigs, mode='xx'):
     ax[0].set_title('Data')
     ax[0].legend()
 
-    for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i])
+    for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i], s=7)
     ax[1].axhline(0, color='gray', ls='--', alpha=0.5)
     # ax[1].set_ylabel('Residuals')
     ax[1].set_title('Residuals')
