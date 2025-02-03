@@ -14,7 +14,7 @@ import math
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -51,9 +51,9 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    if opt_method=='cvxpy':
-        als = np.logspace(7, 3, 160*4//8)
-    al = select_al(Gavgp, Kp, m, W, als, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
+    # if opt_method=='cvxpy':
+    #     als = np.logspace(7, 3, 160*4//8
+    al = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
@@ -65,7 +65,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     
     return A, al
     
-def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
+def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
     """Selects optimal alpha using BT method. 
     
     BT method calculates chi2 for optimized spectrum A* for every al in als.
@@ -118,17 +118,22 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
     # If constrained, make spline fit smoother bc chi2 is much more noisy
     # And choose curvature peak occurring at smallest al (not necessarily max)
     order = als.argsort()
-    if constr_matrix is None or opt_method == 'Bryan':
-        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
-        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-        i = k.argmax()
-    else:
+    if smooth:
+        # Smooth modified BT, currently for use with constrained xy data
+        print('smooth BT')
         fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         k_range = max(k)-min(k)
         result = scipy.signal.find_peaks(k, prominence=k_range/5)
         peaks = result[0]
         i = peaks[-1]
+    else:
+        # Default BT
+        # Actually jk I'm smoothing it out a tiny bit and let's see
+        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.1)
+        # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
+        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        i = k.argmax()
     al = als[i]
 
     # inspect=False
@@ -150,9 +155,9 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[1].plot(als, k)
         ax[1].set_xscale("log")
-        # if constr_matrix is not None and opt_method != 'Bryan':
-        ax[1].scatter(als[peaks], k[peaks], s=5)
-        ax[1].scatter(als[i], k[i], color='g', s=5)
+        if smooth:
+            ax[1].scatter(als[peaks], k[peaks], s=5)
+            ax[1].scatter(als[i], k[i], color='g', s=5)
         ax[1].set_title("Fit 2nd derivative", fontsize=10)
         plt.tight_layout()
         plt.show()

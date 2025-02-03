@@ -35,11 +35,21 @@ class sigma:
         self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
 
         # Set solver settings (stupid)
-        settings_xx_default = {'mdl': 'flat', 'krnl': 'symm', 'opt_method': 'Bryan', 'inspect_al': False}
+        settings_xx_default = {
+            'mdl': 'flat', 
+            'krnl': 'symm', 
+            'opt_method': 'Bryan',
+            'inspect_al': False
+        }
         self.settings_xx = {**settings_xx_default, **settings_xx}
         self.input_xx = self._get_settings_vals(self.settings_xx)
 
-        settings_xy_default = {'mdl': 'flat', 'opt_method': 'Bryan', 'inspect_al': False}
+        settings_xy_default = {
+            'mdl': 'flat',
+            'opt_method': 'Bryan',
+            'inspect_al': False,
+            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
+        }
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
 
@@ -99,12 +109,14 @@ class sigma:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
         inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
-        return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al}
+        smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
+        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al, 'smooth_al': smooth_al}
+        # return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al, 'smooth_al': smooth_al}
 
     def calc_sigma_xx(self):
         if self.bs:
             bs_list = []
-            for i in tqdm(range(self.bs)):
+            for i in tqdm(range(self.bs), desc='Sigma_xx bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(resample)
                 bs_dict = {'re_sig_xx': re_sigmas_xx, **debug_vals}
@@ -125,7 +137,8 @@ class sigma:
             # Symmetric krnl, with half tau and w range
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
             ws_maxent = self.ws[self.N//2:]   # only positive range of ws (N should be an even number)
-            A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al']) # No factor of 2 here
+            A_xx, al_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
+            # A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al']) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
@@ -133,12 +146,13 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al'])
+                # A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al'], smooth=self.input_xy['smooth_al'])
+                A_xx, al_xx = maxent.maxent(g, **self.input_xx)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
-                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b, inspect_al=self.input_xx['inspect_al'])
+                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b, inspect_al=self.input_xx['inspect_al'], smooth_al=self.input_xy['smooth_al'])
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
 
         debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx}
@@ -148,7 +162,7 @@ class sigma:
         self.xs = np.linspace(-np.max(self.ws), np.max(self.ws), 1500) # ws used in Kramer's Kronig transform, change to make specifiable later
         if self.bs:
             bs_list = []
-            for i in tqdm(range(self.bs)):
+            for i in tqdm(range(self.bs), desc='Sigma_xy bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(resample)
                 bs_dict = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, **debug_vals}
@@ -171,12 +185,14 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False, inspect_al=self.input_xy['inspect_al'])
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False, inspect_al=self.input_xy['inspect_al'], smooth_al=self.input_xy['smooth_al'])
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b, smooth=True, inspect_al=self.input_xy['inspect_al'])
+
+            # Wait is this how dict unpacking works lmfao hold on I guess I should unpack the dict
+            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b, smooth_al=self.input_xy['smooth_al'], inspect_al=self.input_xy['inspect_al'])
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
 
@@ -242,7 +258,7 @@ class sigma:
             ax.plot(ws, sig)
         # Annotate with opt_method in top left corner I guess
         method = self.settings_xx['opt_method'] if 'xx' in sigma_name else self.settings_xy['opt_method']
-        K = self.settings_xx['krnl'] if 'xx' in sigma_name else self.settings_xy['krnl']
+        K = self.settings_xx['krnl']
         ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K, (0.04, 0.84), xycoords='axes fraction', fontsize=8, color='gray')
         # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
         ax.set_xlabel(r'$\omega$')
