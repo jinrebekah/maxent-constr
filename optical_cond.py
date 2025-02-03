@@ -90,7 +90,6 @@ class sigma:
         chi_xx = 0.5 * (jxjxq0 + jyjyq0) # average over xx and yy to get avg longitudinal j-j
         chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
         chi_xx = np.real(chi_xx) # added for nflux != 0 data, should be purely real
-        # Possibly better to do real() and imag() after Maxent??
         # Get average transverse jj
         jxjyq0 = jjq0[..., 1, 0]
         jyjxq0 = -jjq0[..., 0, 1]
@@ -101,6 +100,7 @@ class sigma:
     
     def _get_settings_vals(self, settings):
         """Kinda dumb but this generates a dict with values corresponding to settings dict."""
+        # Returns input dict, which are parameters directly passed to MaxEnt
         mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
         if 'krnl' in settings and settings['krnl'] == 'symm':
             krnl = maxent.kernel_b(self.beta, self.taus[0 : self.L // 2 + 1], self.ws[self.N//2:], sym=True)
@@ -125,7 +125,6 @@ class sigma:
             all_bins = np.arange(self.n_bin)
             re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins)
             bs_list = [{'re_sig_xx': re_sigmas_xx, **debug_vals}]
-
         # Create results dataframe from list of bs dicts
         self.results = pd.DataFrame(bs_list)
     
@@ -134,11 +133,9 @@ class sigma:
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         if self.settings_xx['krnl'] == 'symm':
-            # Symmetric krnl, with half tau and w range
+            # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            ws_maxent = self.ws[self.N//2:]   # only positive range of ws (N should be an even number)
             A_xx, al_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
-            # A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al']) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
@@ -146,15 +143,15 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                # A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], inspect_al=self.input_xx['inspect_al'], smooth=self.input_xy['smooth_al'])
                 A_xx, al_xx = maxent.maxent(g, **self.input_xx)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
-                A_xx, al_xx = maxent.maxent(g, self.input_xx['krnl'], self.input_xx['mdl'], opt_method=self.input_xx['opt_method'], constr_matrix=B, constr_vec=b, inspect_al=self.input_xx['inspect_al'], smooth_al=self.input_xy['smooth_al'])
+                self.input_xx['constr_matrix'] = B
+                self.input_xx['constr_vec'] = b
+                A_xx, al_xx = maxent.maxent(g, **self.input_xx)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-
         debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx}
         return re_sigmas_xx, debug_vals
 
@@ -185,17 +182,16 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method="Bryan", inspect_opt=False, inspect_al=self.input_xy['inspect_al'], smooth_al=self.input_xy['smooth_al'])
+            A_sum, al_sum = maxent.maxent(g, **self.input_xy)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
-
-            # Wait is this how dict unpacking works lmfao hold on I guess I should unpack the dict
-            A_sum, al_sum = maxent.maxent(g, self.input_xy['krnl'], self.input_xy['mdl'], opt_method='cvxpy', constr_matrix=B, constr_vec=b, smooth_al=self.input_xy['smooth_al'], inspect_al=self.input_xy['inspect_al'])
+            self.input_xy['constr_matrix'] = B
+            self.input_xy['constr_vec'] = b
+            A_sum, al_sum = maxent.maxent(g, **self.input_xy)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
-
         # Kramer's Kronig for re_sigma_xy
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
@@ -204,7 +200,6 @@ class sigma:
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def plot_results(self, sig_names='all', bs_mode='errorbar'):
-        # Change this to make it plot everything low key, depending on the calculation run
         if sig_names=='all':
             if self.sigma_type == 'xx':
                 sig_names = ['re_sig_xx']
@@ -214,7 +209,7 @@ class sigma:
         num_plots = len(sig_names)
         plot_size = plt.rcParams['figure.figsize']
 
-        fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]))
+        fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
         if num_plots==1:
             self.plot_sigma(ax, sig_names[0], bs_mode=bs_mode)
         else:
@@ -225,10 +220,6 @@ class sigma:
         plt.show()
 
     def plot_sigma(self, ax, sigma_name, bs_mode='errorbar'):
-        # opt_method_dict = {
-        #     'cvxpy': 'Constr.',
-        #     'Bryan': 'Unconstr.'
-        # }
         sigma_name_dict = {
             "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
             # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
