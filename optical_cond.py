@@ -199,67 +199,6 @@ class sigma:
 
         debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
-
-    def plot_results(self, sig_names='all', bs_mode='errorbar'):
-        if sig_names=='all':
-            if self.sigma_type == 'xx':
-                sig_names = ['re_sig_xx']
-            else:
-                sig_names = ['re_sig_xx', 'sig_sum', 'im_sig_xy', 're_sig_xy']
-
-        num_plots = len(sig_names)
-        plot_size = plt.rcParams['figure.figsize']
-
-        fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
-        if num_plots==1:
-            self.plot_sigma(ax, sig_names[0], bs_mode=bs_mode)
-        else:
-            for i in range(num_plots): self.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
-        
-        fig.suptitle(rf'U = {self.U}, $\beta$ = {self.beta}, bs = {self.bs}')
-        # plt.tight_layout()
-        plt.show()
-
-    def plot_sigma(self, ax, sigma_name, bs_mode='errorbar'):
-        sigma_name_dict = {
-            "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
-            # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
-            "re_sig_xy": r'Re[$\sigma_{xy}(\omega)$]',
-            "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
-            "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
-        }
-        if sigma_name == 're_sig_xy':
-            ws = self.xs
-        else:
-            ws = self.ws
-
-        if self.bs:
-            sig_bs = np.array(self.results[sigma_name].tolist())
-            if bs_mode=='errorbar':
-                # Plot bootstrap mean with std error bars
-                sig = np.mean(sig_bs, axis=0)
-                sig_err = np.std(sig_bs, axis=0)
-                ax.errorbar(ws, sig, yerr=sig_err, fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
-            else:
-                # Plot all bootstraps on top of each other
-                for i in range(self.bs):
-                    ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
-        else:
-            # Plot all bins result
-            sig = self.results[sigma_name][0]
-            ax.plot(ws, sig)
-        # Annotate with opt_method in top left corner I guess
-        settings = self.settings_xx if 'xx' in sigma_name else self.settings_xy
-
-        method = settings['opt_method']
-        K = self.settings_xx['krnl']
-        al_method = 'smooth' if settings['smooth_al'] else 'default'
-        ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
-        # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
-        ax.set_xlabel(r'$\omega$')
-        ax.set_ylabel(sigma_name_dict[sigma_name])
-
-        # ax.set_title(rf'U = {self.U}, $\beta$ = {self.beta}')
     
     def print_summary(self):
         # Print summary of settings used in opt
@@ -297,10 +236,68 @@ class sigma:
         return KA, chi_xy
 
 
+############################ Various plotting and debugging funcs ################################
 
+def plot_sigma(sig, ax, sigma_name, bs_mode='errorbar'):
+    sigma_name_dict = {
+        "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
+        # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
+        "re_sig_xy": r'Re[$\sigma_{xy}(\omega)$]',
+        "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
+        "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
+    }
+    if sigma_name == 're_sig_xy':
+        ws = sig.xs
+    else:
+        ws = sig.ws
 
+    if sig.bs:
+        sig_bs = np.array(sig.results[sigma_name].tolist())
+        if bs_mode=='errorbar':
+            # Plot bootstrap mean with std error bars
+            sig = np.mean(sig_bs, axis=0)
+            sig_err = np.std(sig_bs, axis=0)
+            ax.errorbar(ws, sig, yerr=sig_err, fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
+        else:
+            # Plot all bootstraps on top of each other
+            for i in range(sig.bs):
+                ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
+    else:
+        # Plot all bins result
+        sig = sig.results[sigma_name][0]
+        ax.plot(ws, sig)
+    # Annotate with opt_method in top left corner I guess
+    settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
 
+    method = settings['opt_method']
+    K = sig.settings_xx['krnl']
+    al_method = 'smooth' if settings['smooth_al'] else 'default'
+    ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
+    # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
+    ax.set_xlabel(r'$\omega$')
+    ax.set_ylabel(sigma_name_dict[sigma_name])
 
+    # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
+
+def plot_results(sig, sig_names='all', bs_mode='errorbar'):
+    if sig_names=='all':
+        if sig.sigma_type == 'xx':
+            sig_names = ['re_sig_xx']
+        else:
+            sig_names = ['re_sig_xx', 'sig_sum', 'im_sig_xy', 're_sig_xy']
+
+    num_plots = len(sig_names)
+    plot_size = plt.rcParams['figure.figsize']
+
+    fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
+    if num_plots==1:
+        sig.plot_sigma(ax, sig_names[0], bs_mode=bs_mode)
+    else:
+        for i in range(num_plots): sig.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
+    
+    fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    # plt.tight_layout()
+    plt.show()
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
