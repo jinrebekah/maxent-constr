@@ -39,7 +39,8 @@ class sigma:
             'mdl': 'flat', 
             'krnl': 'symm', 
             'opt_method': 'Bryan',
-            'inspect_al': False
+            'inspect_al': False,
+            'smooth_al': False
         }
         self.settings_xx = {**settings_xx_default, **settings_xx}
         self.input_xx = self._get_settings_vals(self.settings_xx)
@@ -119,7 +120,7 @@ class sigma:
             for i in tqdm(range(self.bs), desc='Sigma_xx bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(resample)
-                bs_dict = {'re_sig_xx': re_sigmas_xx, **debug_vals}
+                bs_dict = {'re_sig_xx': re_sigmas_xx, 'resample': resample, **debug_vals}
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
@@ -143,16 +144,16 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                A_xx, al_xx = maxent.maxent(g, **self.input_xx)
+                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
                 self.input_xx['constr_matrix'] = B
                 self.input_xx['constr_vec'] = b
-                A_xx, al_xx = maxent.maxent(g, **self.input_xx)
+                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx}
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx}
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -162,7 +163,7 @@ class sigma:
             for i in tqdm(range(self.bs), desc='Sigma_xy bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
                 re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(resample)
-                bs_dict = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, **debug_vals}
+                bs_dict = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, 'resample': resample, **debug_vals}
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
@@ -182,21 +183,21 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum = maxent.maxent(g, **self.input_xy)
+            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
             self.input_xy['constr_matrix'] = B
             self.input_xy['constr_vec'] = b
-            A_sum, al_sum = maxent.maxent(g, **self.input_xy)
+            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
         # Kramer's Kronig for re_sigma_xy
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def plot_results(self, sig_names='all', bs_mode='errorbar'):
@@ -248,9 +249,12 @@ class sigma:
             sig = self.results[sigma_name][0]
             ax.plot(ws, sig)
         # Annotate with opt_method in top left corner I guess
-        method = self.settings_xx['opt_method'] if 'xx' in sigma_name else self.settings_xy['opt_method']
+        settings = self.settings_xx if 'xx' in sigma_name else self.settings_xy
+
+        method = settings['opt_method']
         K = self.settings_xx['krnl']
-        ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K, (0.04, 0.84), xycoords='axes fraction', fontsize=8, color='gray')
+        al_method = 'smooth' if settings['smooth_al'] else 'default'
+        ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
         # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
         ax.set_xlabel(r'$\omega$')
         ax.set_ylabel(sigma_name_dict[sigma_name])
@@ -268,10 +272,10 @@ class sigma:
         chi_xx = np.mean(self.chi_xx, axis=0)
         if self.settings_xx['krnl']=='symm':
             # A_xx full length, but krnl is not 
-            KA = self.input_xx['krnl']@A_xx[self.N//2:]   # only for the first half of taus
+            KA = self.input_xx['K']@A_xx[self.N//2:]   # only for the first half of taus
             KA = np.concatenate((KA, KA[math.ceil(self.L/2)-1::-1]))[:-1] # without including beta point
         else:
-            KA = self.input_xx['krnl']@A_xx
+            KA = self.input_xx['K']@A_xx
             
         if include_beta:
             KA = np.append(KA, KA[0])
@@ -285,12 +289,17 @@ class sigma:
         # If bs, just average A_xy*norm for all bs
         A_xy = (self.results['A_xy']*self.results['norm_sum']).mean()
 
-        KA = self.input_xy['krnl']@A_xy
+        KA = self.input_xy['K']@A_xy
         chi_xy = np.mean(self.chi_xy, axis=0)
         if include_beta:    
             chi_xy = np.append(chi_xy, -chi_xy[0])
             KA = np.append(KA, -KA[0])
         return KA, chi_xy
+
+
+
+
+
 
 
 def compare_chi_tau(sigs, mode='xx'):

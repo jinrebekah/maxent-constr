@@ -51,9 +51,9 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    # if opt_method=='cvxpy':
-    #     als = np.logspace(7, 3, 160*4//8
-    al = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
+    if opt_method=='cvxpy':
+        als = np.logspace(7, 3, 160*4//8)
+    al, As = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
@@ -63,7 +63,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
     
-    return A, al
+    return A, al, As
     
 def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
     """Selects optimal alpha using BT method. 
@@ -120,7 +120,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     order = als.argsort()
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
-        print('smooth BT')
+        # print('smooth BT')
         fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         k_range = max(k)-min(k)
@@ -130,7 +130,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     else:
         # Default BT
         # Actually jk I'm smoothing it out a tiny bit and let's see
-        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.1)
+        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.02)
         # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         i = k.argmax()
@@ -181,7 +181,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         plt.show()
 
     # print("Alpha: ", f"{al:.2e}")
-    return al
+    return al, As
     
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
