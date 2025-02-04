@@ -238,7 +238,28 @@ class sigma:
 
 ############################ Various plotting and debugging funcs ################################
 
-def plot_sigma(sig, ax, sigma_name, bs_mode='errorbar'):
+def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
+    # Plots sig results. Can give it bs indices to only plot specific bootstraps, otherwise plots all
+    if sig_names is None:
+        if sig.sigma_type == 'xx':
+            sig_names = ['re_sig_xx']
+        else:
+            sig_names = ['re_sig_xx', 'sig_sum', 'im_sig_xy', 're_sig_xy']
+
+    num_plots = len(sig_names)
+    plot_size = plt.rcParams['figure.figsize']
+    fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
+
+    if num_plots==1:
+        sig.plot_sigma(ax, sig_names[0], bs_idx, bs_mode=bs_mode)
+    else:
+        for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
+    
+    fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    # plt.tight_layout()
+    plt.show()
+
+def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
     sigma_name_dict = {
         "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
         # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
@@ -246,13 +267,19 @@ def plot_sigma(sig, ax, sigma_name, bs_mode='errorbar'):
         "im_sig_xy": r'Im[$\sigma_{xy}(\omega)$]',
         "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
     }
+
     if sigma_name == 're_sig_xy':
         ws = sig.xs
     else:
         ws = sig.ws
 
     if sig.bs:
-        sig_bs = np.array(sig.results[sigma_name].tolist())
+        if bs_idx is None:
+            # Plot all bootstraps
+            bs_idx = np.arange(sig.bs) # bs_idx needs to be a list
+        sig_bs = np.array(sig.results[sigma_name].tolist())[bs_idx] # Only keep bs we want to plot
+        if len(sig_bs) == 1:
+            bs_mode = 'all'   # no such thing as std for 1 bs, use 'all' mode
         if bs_mode=='errorbar':
             # Plot bootstrap mean with std error bars
             sig = np.mean(sig_bs, axis=0)
@@ -260,7 +287,7 @@ def plot_sigma(sig, ax, sigma_name, bs_mode='errorbar'):
             ax.errorbar(ws, sig, yerr=sig_err, fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
         else:
             # Plot all bootstraps on top of each other
-            for i in range(sig.bs):
+            for i in range(len(sig_bs)):
                 ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
     else:
         # Plot all bins result
@@ -278,26 +305,6 @@ def plot_sigma(sig, ax, sigma_name, bs_mode='errorbar'):
     ax.set_ylabel(sigma_name_dict[sigma_name])
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
-
-def plot_results(sig, sig_names='all', bs_mode='errorbar'):
-    if sig_names=='all':
-        if sig.sigma_type == 'xx':
-            sig_names = ['re_sig_xx']
-        else:
-            sig_names = ['re_sig_xx', 'sig_sum', 'im_sig_xy', 're_sig_xy']
-
-    num_plots = len(sig_names)
-    plot_size = plt.rcParams['figure.figsize']
-
-    fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
-    if num_plots==1:
-        sig.plot_sigma(ax, sig_names[0], bs_mode=bs_mode)
-    else:
-        for i in range(num_plots): sig.plot_sigma(ax[i], sig_names[i], bs_mode=bs_mode)
-    
-    fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
-    # plt.tight_layout()
-    plt.show()
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
