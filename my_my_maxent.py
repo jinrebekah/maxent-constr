@@ -14,7 +14,7 @@ import math
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(7, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -110,18 +110,28 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
             u_init = us[i-1]
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
             As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
-        elif opt_method == "cvxpy":        
-            As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
-        Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True)
+        elif opt_method == "cvxpy": 
+            try:
+                As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+            except Exception as e:
+                print(f"find_A_cvxpy failed for {al:.2e} with error: {e}")
+                As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
+            # As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+        Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
 
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
     # If constrained, make spline fit smoother bc chi2 is much more noisy
     # And choose curvature peak occurring at smallest al (not necessarily max)
-    order = als.argsort()
+    
+    # Filter out nans
+    valid_indices = ~np.isnan(chi2s)
+    valid_als = als[valid_indices]
+    valid_chi2s = chi2s[valid_indices]
+    order = valid_als.argsort()
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
         # print('smooth BT')
-        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.5)
+        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=0.5)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         # k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**100
         k_range = max(k)-min(k)
@@ -131,7 +141,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     else:
         # Default BT
         # Actually jk I'm smoothing it out a tiny bit and let's see
-        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.02)
+        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=0.02)
         # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         al_idx = k.argmax()
@@ -331,6 +341,12 @@ def Q_u(u, G, K, m, W, al, precalc, return_all=False):
     return (al*S - 0.5*chi2)
 
 def Q(A, G, K, m, W, al, return_all=False):
+    if np.isnan(A).any():
+        # Return NaN of appropriate shape
+        if return_all:
+            return np.nan, np.nan, np.nan
+        return np.nan
+    
     S = (A - m - scipy.special.xlogy(A, A/m)).sum()
     KAG = K@A - G
     chi2 = np.dot(KAG*KAG, W)

@@ -112,7 +112,9 @@ class sigma:
         opt_method = settings['opt_method']
         # inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
-        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al}
+        # als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(7, 1, 1+20*(7-1))
+        als = np.logspace(8, 1, 1+20*(8-1))
+        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
         if self.bs:
@@ -306,7 +308,6 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
 def inspect_al(sig, sigma_type, bs, als_plot=[]):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
-    als = np.logspace(8, 1, 1+20*(8-1))
     resample = sig.results['resample'][bs]
     
     if sig.settings_xx['krnl'] == 'symm':
@@ -323,6 +324,7 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
         optimal_al = sig.results['al_xx'][bs]
         chi2s = sig.results['chi2s_xx'][bs]
         sig_label = r'Re[$\sigma_{xx}(\omega)$]'
+        als = sig.input_xx['als']
     else:
         # See color plot of im_sig_xy vs. alphas
         # sig._calc_sigma_xy_bins(resample, inspect_al = True)
@@ -335,6 +337,7 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
         optimal_al = sig.results['al_sum'][bs]
         chi2s = sig.results['chi2s_sum'][bs]
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
+        als = sig.input_xy['als']
     als_plot.append(optimal_al) # always plot optimal al
 
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
