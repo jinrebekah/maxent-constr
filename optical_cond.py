@@ -302,9 +302,10 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sigma_type, bs):
+def inspect_al(sig, sigma_type, bs, als_plot=[]):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
+    als = np.logspace(8, 1, 1+20*(8-1))
     resample = sig.results['resample'][bs]
     
     if sig.settings_xx['krnl'] == 'symm':
@@ -317,58 +318,41 @@ def inspect_al(sig, sigma_type, bs):
         # sig._calc_sigma_xx_bins(resample, inspect_al = True)
         sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi
         sigmas_al = sigmas_xx_al
+        optimal_al = sig.results['al_xx'][bs]
     else:
         # See color plot of im_sig_xy vs. alphas
-        sig._calc_sigma_xy_bins(resample, inspect_al = True)
+        # sig._calc_sigma_xy_bins(resample, inspect_al = True)
         sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
         sigmas_xx = sig.results['re_sig_xx'][bs]
-        # sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean())*np.pi)
+        sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean())*np.pi)
         sigmas_al = sigmas_sum_al - sigmas_xx
+        optimal_al = sig.results['al_sum'][bs]
+    als_plot.append(optimal_al) # always plot optimal al
+
+    # Ok this is probably super dumb but I want to try adding chi2 plot too
+    # Would mean redoing the alpha selection chi2 fit which is kinda dumb but honestly not as dumb as rerunning the alpha selection entirely
     
-    # Check sigmas_sum, sigmas_xx_al
-    als = np.logspace(8, 1, 1+20*(8-1))
 
-    al_xx = sig.results['al_xx'][bs]
-    al_sum = sig.results['al_sum'][bs]
+    # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
+    fig, ax = plt.subplots(figsize = (default_figsize[0]*2, default_figsize[1]), ncols=2, layout='constrained')
+    # sigmas_al = np.flip(np.transpose(sigmas_al), axis=0)   # Make als the x-axis
 
-    al_xx_idx = find_nearest(als, al_xx, get_idx=True)
-    al_sum_idx = find_nearest(als, al_sum, get_idx=True)
-    # print('Plot func: ', al_plot, al_idx)
-
-    plt.figure()
-    plt.plot(sig.ws, sigmas_xx_al[al_xx_idx])
-    plt.plot(sig.ws,  sig.results['re_sig_xx'][bs])
-
-    # print(As_xx[al_xx_idx] - sig.results['A_xx'][bs])    # Are the As even the same
-    # print(sigmas_xx_al[al_xx_idx] - sig.results['re_sig_xx'][bs])   # this is not 0, sigmas_xx_al is incorrect
-
-    plt.figure()
-    plt.plot(sig.ws, sigmas_sum_al[al_sum_idx])
-    plt.plot(sig.ws, sig.results['sig_sum'][bs])
-    # print(sigmas_sum_al[al_sum_idx] - sig.results['sig_sum'][bs])   # Ok so for some reason, this is 0 - sigmas_sum_al is correct
-
-    plt.figure()
-    plt.plot(sig.ws, sigmas_sum_al[al_sum_idx] - sigmas_xx)
-    plt.plot(sig.ws, sig.results['im_sig_xy'][bs])
-    #####OOOOOHHH it's because you have to subtract the same sigma_xx from every alpha sigma_sum, it doesn't calculate both at the same itme
-
-    
-    
     # from matplotlib.colors import TwoSlopeNorm
     # lim = max(np.min(sigmas_al), np.max(sigmas_al))
     # norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
 
-    # Plot density plot of sigma vs. al
-    fig, ax = plt.subplots(figsize = 1.5*np.array(default_figsize))
+    # X, Y = np.meshgrid(np.log10(als), sig.ws)
+    # X, Y = np.meshgrid(sig.ws, np.log10(als))
+    X, Y = np.meshgrid(sig.ws, als)
+    pcol = ax[0].pcolormesh(X, Y, sigmas_al, cmap='viridis', rasterized=True)
+    ax[0].set_yscale('log')
+    fig.colorbar(pcol, ax=ax[0])
+    # ax[0].set_xlabel()
 
-    X, Y = np.meshgrid(sig.ws, np.log10(als))
-    pcol = plt.pcolormesh(X, Y, sigmas_al, cmap='viridis', rasterized=True)
-    plt.colorbar()
-
-    plt.figure()
-    als_plot = [sig.results['al_sum'][bs]]
-    als_idx = [find_nearest(als, al_plot) for al_plot in als_plot]
-    # for i in als_idx: plt.plot(sig.ws, sigmas_al[i])
+    for i, al_plot in enumerate(als_plot):
+        al_idx = find_nearest(als, al_plot, get_idx=True)
+        ax[0].axhline(al_plot) # Plot lines on colorplot at als_plot
+        ax[1].plot(sig.ws, sigmas_al[al_idx])
 
     plt.show()
 
