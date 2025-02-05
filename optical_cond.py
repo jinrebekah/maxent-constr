@@ -109,10 +109,9 @@ class sigma:
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
-        inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
+        # inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
-        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al, 'smooth_al': smooth_al}
-        # return {'mdl': mdl, 'krnl': krnl, 'opt_method': opt_method, 'inspect_al': inspect_al, 'smooth_al': smooth_al}
+        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al}
 
     def calc_sigma_xx(self):
         if self.bs:
@@ -124,19 +123,19 @@ class sigma:
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
-            re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins)
-            bs_list = [{'re_sig_xx': re_sigmas_xx, **debug_vals}]
+            re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins, inspect_al = self.settings_xx['inspect_al'])
+            bs_list = [{'re_sig_xx': re_sigmas_xx, 'resample': all_bins, **debug_vals}]
         # Create results dataframe from list of bs dicts
         self.results = pd.DataFrame(bs_list)
     
-    def _calc_sigma_xx_bins(self, resample):
+    def _calc_sigma_xx_bins(self, resample, inspect_al=False):
         """Calculates sigma_xx for bin indices specified by resample."""
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            A_xx, al_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
+            A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
@@ -144,14 +143,14 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx)
+                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
                 self.input_xx['constr_matrix'] = B
                 self.input_xx['constr_vec'] = b
-                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx)
+                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
         debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx}
         return re_sigmas_xx, debug_vals
@@ -167,12 +166,12 @@ class sigma:
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
-            re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(all_bins)
-            bs_list = [{'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, **debug_vals}]
+            re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(all_bins, inspect_al = self.settings_xy['inspect_al'])
+            bs_list = [{'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, 'resample': all_bins, **debug_vals}]
         # Create results dataframe from list of bs dicts
         self.results = pd.DataFrame(bs_list)
 
-    def _calc_sigma_xy_bins(self, resample):
+    def _calc_sigma_xy_bins(self, resample, inspect_al=False):
         """Calculates sigma_xy for bin indices specified by resample."""
         # Get sigma_xx
         re_sigmas_xx, debug_vals_xx = self._calc_sigma_xx_bins(resample)
@@ -183,14 +182,14 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy)
+            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
             self.input_xy['constr_matrix'] = B
             self.input_xy['constr_vec'] = b
-            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy)
+            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
         # Kramer's Kronig for re_sigma_xy
@@ -199,7 +198,7 @@ class sigma:
 
         debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
-    
+
     def print_summary(self):
         # Print summary of settings used in opt
         pass
@@ -236,7 +235,7 @@ class sigma:
         return KA, chi_xy
 
 
-############################ Various plotting and debugging funcs ################################
+############################ Various badly written plotting and debugging funcs ################################
 
 def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     # Plots sig results. Can give it bs indices to only plot specific bootstraps, otherwise plots all
@@ -251,7 +250,7 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
 
     if num_plots==1:
-        sig.plot_sigma(ax, sig_names[0], bs_idx, bs_mode=bs_mode)
+        sig.plot_sigma(sig, ax, sig_names[0], bs_idx, bs_mode=bs_mode)
     else:
         for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
     
@@ -282,20 +281,17 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
             bs_mode = 'all'   # no such thing as std for 1 bs, use 'all' mode
         if bs_mode=='errorbar':
             # Plot bootstrap mean with std error bars
-            sig = np.mean(sig_bs, axis=0)
-            sig_err = np.std(sig_bs, axis=0)
-            ax.errorbar(ws, sig, yerr=sig_err, fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
+            ax.errorbar(ws, np.mean(sig_bs, axis=0), yerr=np.std(sig_bs, axis=0), fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
         else:
             # Plot all bootstraps on top of each other
             for i in range(len(sig_bs)):
                 ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
     else:
         # Plot all bins result
-        sig = sig.results[sigma_name][0]
-        ax.plot(ws, sig)
-    # Annotate with opt_method in top left corner I guess
-    settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
+        ax.plot(ws, sig.results[sigma_name][0])
 
+    # Annotate with opt info in top left corner I guess
+    settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
     method = settings['opt_method']
     K = sig.settings_xx['krnl']
     al_method = 'smooth' if settings['smooth_al'] else 'default'
@@ -305,6 +301,78 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
     ax.set_ylabel(sigma_name_dict[sigma_name])
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
+
+def inspect_al(sig, sigma_type, bs):
+    # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
+    # Also include color plot of spectra vs. alpha
+    resample = sig.results['resample'][bs]
+    
+    if sig.settings_xx['krnl'] == 'symm':
+        As_xx = np.concatenate((sig.results['As_xx'][bs][:, ::-1], sig.results['As_xx'][bs]), axis=1)
+    else:
+        As_xx = sig.results['As_xx'][bs]
+
+    if sigma_type == 'xx':
+        # See color plot of sig_xx spectra vs. alphas
+        # sig._calc_sigma_xx_bins(resample, inspect_al = True)
+        sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi
+        sigmas_al = sigmas_xx_al
+    else:
+        # See color plot of im_sig_xy vs. alphas
+        sig._calc_sigma_xy_bins(resample, inspect_al = True)
+        sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
+        sigmas_xx = sig.results['re_sig_xx'][bs]
+        # sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean())*np.pi)
+        sigmas_al = sigmas_sum_al - sigmas_xx
+    
+    # Check sigmas_sum, sigmas_xx_al
+    als = np.logspace(8, 1, 1+20*(8-1))
+
+    al_xx = sig.results['al_xx'][bs]
+    al_sum = sig.results['al_sum'][bs]
+
+    al_xx_idx = find_nearest(als, al_xx, get_idx=True)
+    al_sum_idx = find_nearest(als, al_sum, get_idx=True)
+    # print('Plot func: ', al_plot, al_idx)
+
+    plt.figure()
+    plt.plot(sig.ws, sigmas_xx_al[al_xx_idx])
+    plt.plot(sig.ws,  sig.results['re_sig_xx'][bs])
+
+    # print(As_xx[al_xx_idx] - sig.results['A_xx'][bs])    # Are the As even the same
+    # print(sigmas_xx_al[al_xx_idx] - sig.results['re_sig_xx'][bs])   # this is not 0, sigmas_xx_al is incorrect
+
+    plt.figure()
+    plt.plot(sig.ws, sigmas_sum_al[al_sum_idx])
+    plt.plot(sig.ws, sig.results['sig_sum'][bs])
+    # print(sigmas_sum_al[al_sum_idx] - sig.results['sig_sum'][bs])   # Ok so for some reason, this is 0 - sigmas_sum_al is correct
+
+    plt.figure()
+    plt.plot(sig.ws, sigmas_sum_al[al_sum_idx] - sigmas_xx)
+    plt.plot(sig.ws, sig.results['im_sig_xy'][bs])
+    #####OOOOOHHH it's because you have to subtract the same sigma_xx from every alpha sigma_sum, it doesn't calculate both at the same itme
+
+    
+    
+    # from matplotlib.colors import TwoSlopeNorm
+    # lim = max(np.min(sigmas_al), np.max(sigmas_al))
+    # norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
+
+    # Plot density plot of sigma vs. al
+    fig, ax = plt.subplots(figsize = 1.5*np.array(default_figsize))
+
+    X, Y = np.meshgrid(sig.ws, np.log10(als))
+    pcol = plt.pcolormesh(X, Y, sigmas_al, cmap='viridis', rasterized=True)
+    plt.colorbar()
+
+    plt.figure()
+    als_plot = [sig.results['al_sum'][bs]]
+    als_idx = [find_nearest(als, al_plot) for al_plot in als_plot]
+    # for i in als_idx: plt.plot(sig.ws, sigmas_al[i])
+
+    plt.show()
+
+# Also though, for a given bootstrap, want to be able to see what spectrum looks like for given al
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
@@ -344,3 +412,16 @@ def compare_chi_tau(sigs, mode='xx'):
     fig.suptitle(rf'U = {U}, $\beta$ = {beta}, bs = {bs}')
     # plt.tight_layout()
     plt.show()
+
+def find_nearest(array, value, get_idx = False):
+    diff_arr = array - value
+    if array.ndim == 1:
+        diff_mag_arr = np.abs(diff_arr)
+    else:
+        diff_mag_arr = np.linalg.norm(diff_arr, axis=-1) # low key questionable lmao
+    idx = (diff_mag_arr).argmin()
+    diff = value - array[idx]
+    if get_idx:
+        return idx
+    else:
+        return array[idx]

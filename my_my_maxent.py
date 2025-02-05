@@ -51,9 +51,9 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    if opt_method=='cvxpy':
-        als = np.logspace(7, 3, 160*4//8)
-    al, As = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
+    # if opt_method=='cvxpy':
+    #     als = np.logspace(7, 3, 160*4//8)
+    al, As, i = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
@@ -63,6 +63,9 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
     
+    A = As[i]
+    print('Maxent: ', al, i)
+
     return A, al, As
     
 def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
@@ -121,20 +124,21 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
         # print('smooth BT')
-        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
+        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.5)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        # k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**100
         k_range = max(k)-min(k)
         result = scipy.signal.find_peaks(k, prominence=k_range/5)
         peaks = result[0]
-        i = peaks[-1]
+        al_idx = peaks[-1]
     else:
         # Default BT
         # Actually jk I'm smoothing it out a tiny bit and let's see
         fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=0.02)
         # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-        i = k.argmax()
-    al = als[i]
+        al_idx = k.argmax()
+    al = als[al_idx]
 
     # inspect=False
     # if math.floor(math.log(al, 10)) != 6 and opt_method == 'cvxpy':
@@ -142,46 +146,41 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     ### Optional plots for debugging
     if inspect_al:
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
-        # Specifically for debugging (constrained) al selection.
-        fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
-        ax[0].plot(als, np.exp(fit(np.log(als))), color='r')
+        fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2/1.2, default_figsize[1]/1.2), layout='constrained')
         ax[0].scatter(als, chi2s, s=1.5)
-        ax[0].set_title("Smoothed spline chi2 vs. als fit", fontsize=10)
-        ax[0].set_xscale("log")
-        ax[0].set_yscale("log")
+        ax[0].loglog(als, np.exp(fit(np.log(als))), color='r', label='f')
         ax[0].set_xlabel(r"$\alpha$")
         ax[0].set_ylabel(r"$\chi^2$")
-        ax[0].axvline(al, color='g')
+        ax[0].axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+
         ax[1].plot(als, k)
         ax[1].set_xscale("log")
+        ax[1].set_ylabel(r"$f''/(1 + f'^2)^{1.5}$")
+        # ax[1].plot(als, fit(np.log(als), 2)) # Plot 2nd derivative directly
+        # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
         if smooth:
             ax[1].scatter(als[peaks], k[peaks], s=5)
             ax[1].scatter(als[i], k[i], color='g', s=5)
-        ax[1].set_title("Fit 2nd derivative", fontsize=10)
-        plt.tight_layout()
-        plt.show()
-    # if plot_all:
+        
         # Plot Q, S, and chi2.
         xlim=(0, 10**6)
-        fig, ax = plt.subplots(nrows=3, figsize=(default_figsize[0], default_figsize[1]*3))
+        fig, ax = plt.subplots(ncols=3, figsize=(default_figsize[0]*3/1.2, default_figsize[1]/1.2), layout='constrained')
         plot_list = [chi2s, Qs, Ss]
         plot_labels = [r"$\chi^2$", r"$Q$", r"$S$"]
-        fig.subplots_adjust(hspace=0.1)
         for i in range(3):
             ax[i].scatter(als, plot_list[i])
             ax[i].set_xscale("log")
+            ax[i].set_xlabel(r"$\alpha$")
             ax[i].set_ylabel(plot_labels[i])
-            ax[i].axvline(al)
-            if i!=2:
-                ax[i].set_xticks([])
+            ax[i].axvline(al, color='g')
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
-        ax[2].set_xlabel(r"$\alpha$")
         plt.show()
 
     # print("Alpha: ", f"{al:.2e}")
-    return al, As
+    print("select_al: ", al, al_idx)
+    return al, As, al_idx
     
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
