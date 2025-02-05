@@ -12,6 +12,7 @@ import util
 from tqdm import tqdm
 import math
 import pandas as pd
+import seaborn as sns
 
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
@@ -135,7 +136,7 @@ class sigma:
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
+            A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
@@ -143,16 +144,16 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+                A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
                 self.input_xx['constr_matrix'] = B
                 self.input_xx['constr_vec'] = b
-                A_xx, al_xx, As_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+                A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx}
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx, 'chi2s_xx': chi2s_xx}
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -182,21 +183,21 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
+            A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
             self.input_xy['constr_matrix'] = B
             self.input_xy['constr_vec'] = b
-            A_sum, al_sum, As_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
+            A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
         # Kramer's Kronig for re_sigma_xy
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, 'chi2s_sum': chi2s_sum, **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
@@ -316,46 +317,64 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
     if sigma_type == 'xx':
         # See color plot of sig_xx spectra vs. alphas
         # sig._calc_sigma_xx_bins(resample, inspect_al = True)
-        sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi
+        As = sig.results['As_xx'][bs]
+        sigmas_xx_al = np.real(As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi)
         sigmas_al = sigmas_xx_al
         optimal_al = sig.results['al_xx'][bs]
+        chi2s = sig.results['chi2s_xx'][bs]
+        sig_label = r'Re[$\sigma_{xx}(\omega)$]'
     else:
         # See color plot of im_sig_xy vs. alphas
         # sig._calc_sigma_xy_bins(resample, inspect_al = True)
-        sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
+        # sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
+        As = sig.results['As_sum'][bs]
         sigmas_xx = sig.results['re_sig_xx'][bs]
+
         sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean())*np.pi)
         sigmas_al = sigmas_sum_al - sigmas_xx
         optimal_al = sig.results['al_sum'][bs]
+        chi2s = sig.results['chi2s_sum'][bs]
+        sig_label = r'Im[$\sigma_{xy}(\omega)$]'
     als_plot.append(optimal_al) # always plot optimal al
 
-    # Ok this is probably super dumb but I want to try adding chi2 plot too
-    # Would mean redoing the alpha selection chi2 fit which is kinda dumb but honestly not as dumb as rerunning the alpha selection entirely
-    
-
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
-    fig, ax = plt.subplots(figsize = (default_figsize[0]*2, default_figsize[1]), ncols=2, layout='constrained')
-    # sigmas_al = np.flip(np.transpose(sigmas_al), axis=0)   # Make als the x-axis
+    fig, ax = plt.subplots(figsize = (default_figsize[0]*3, default_figsize[1]), ncols=3, layout='constrained')
 
+    # Chi2 plot
+    ax[0].scatter(als, chi2s)
+    ax[0].set_xscale('log')
+    ax[0].set_yscale('log')
+    ax[0].set_xlabel(r'$\alpha$')
+    ax[0].set_ylabel(r'$\chi^2$')
+
+    # Color plot
     # from matplotlib.colors import TwoSlopeNorm
     # lim = max(np.min(sigmas_al), np.max(sigmas_al))
     # norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
+    X, Y = np.meshgrid(als, sig.ws)
+    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_al), cmap='viridis', rasterized=True, )
+    ax[1].invert_yaxis()
+    ax[1].set_xscale('log')
+    fig.colorbar(pcol, ax=ax[1])
+    ax[1].set_xlabel(r'$\alpha$')
+    ax[1].set_ylabel(r'$\omega$')
 
-    # X, Y = np.meshgrid(np.log10(als), sig.ws)
-    # X, Y = np.meshgrid(sig.ws, np.log10(als))
-    X, Y = np.meshgrid(sig.ws, als)
-    pcol = ax[0].pcolormesh(X, Y, sigmas_al, cmap='viridis', rasterized=True)
-    ax[0].set_yscale('log')
-    fig.colorbar(pcol, ax=ax[0])
-    # ax[0].set_xlabel()
-
+    # Spectrum plot
+    if len(als_plot) == 1:
+        colors = ['r']
+    else:
+        colors = sns.color_palette('husl', len(als_plot)-1)
+        colors.append('r')
     for i, al_plot in enumerate(als_plot):
+        color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
-        ax[0].axhline(al_plot) # Plot lines on colorplot at als_plot
-        ax[1].plot(sig.ws, sigmas_al[al_idx])
+        ax[2].plot(sig.ws, sigmas_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
+        for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
+    ax[2].set_xlabel(r'$\omega$')
+    ax[2].set_ylabel(sig_label)
+    ax[2].legend()
 
     plt.show()
-
 # Also though, for a given bootstrap, want to be able to see what spectrum looks like for given al
 
 def compare_chi_tau(sigs, mode='xx'):

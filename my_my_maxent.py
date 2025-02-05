@@ -14,7 +14,7 @@ import math
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(7, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -53,7 +53,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     # ---------- Select optimal al ----------
     # if opt_method=='cvxpy':
     #     als = np.logspace(7, 3, 160*4//8)
-    al, As = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
+    al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
@@ -63,7 +63,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
 
-    return A, al, As
+    return A, al, As, chi2s
     
 def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
     """Selects optimal alpha using BT method. 
@@ -175,7 +175,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         ax[0].set_yscale("log")
         plt.show()
 
-    return al, As
+    return al, As, chi2s
 
 
     
