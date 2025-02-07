@@ -26,7 +26,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraints B*A=b (Default: None).
         als (array): Array of alpha values used in optimal alpha selection.
         inspect (bool): Whether to plot/print checks.
-    Returns:
+    Returns: 
         A (array): Spectral function A(w) (1xN).
     """
     N = K.shape[1]

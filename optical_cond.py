@@ -40,8 +40,7 @@ class sigma:
             'mdl': 'flat', 
             'krnl': 'symm', 
             'opt_method': 'Bryan',
-            'inspect_al': False,
-            'smooth_al': False
+            'inspect_al': False
         }
         self.settings_xx = {**settings_xx_default, **settings_xx}
         self.input_xx = self._get_settings_vals(self.settings_xx)
@@ -49,8 +48,7 @@ class sigma:
         settings_xy_default = {
             'mdl': 'flat',
             'opt_method': 'Bryan',
-            'inspect_al': False,
-            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
+            'inspect_al': False
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
@@ -101,8 +99,7 @@ class sigma:
         return jjq0, chi_xx, chi_xy
     
     def _get_settings_vals(self, settings):
-        """Kinda dumb but this generates a dict with values corresponding to settings dict."""
-        # Returns input dict, which are parameters directly passed to MaxEnt
+        """Returns input dict of parameters directly passed to MaxEnt."""
         mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
         if 'krnl' in settings and settings['krnl'] == 'symm':
             krnl = maxent.kernel_b(self.beta, self.taus[0 : self.L // 2 + 1], self.ws[self.N//2:], sym=True)
@@ -111,7 +108,7 @@ class sigma:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
         # inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
-        smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
+        smooth_al = True if settings['opt_method'] == 'cvxpy' else False
         als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-2))
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al, 'als': als}
 
@@ -296,8 +293,8 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
     settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
     method = settings['opt_method']
     K = sig.settings_xx['krnl']
-    al_method = 'smooth' if settings['smooth_al'] else 'default'
-    ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
+    # al_method = 'smooth' if settings['smooth_al'] else 'default'
+    ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K, (0.04, 0.84), xycoords='axes fraction', fontsize=8, color='gray')
     # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
     ax.set_xlabel(r'$\omega$')
     ax.set_ylabel(sigma_name_dict[sigma_name])
