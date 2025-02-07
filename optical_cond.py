@@ -112,8 +112,7 @@ class sigma:
         opt_method = settings['opt_method']
         # inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
-        # als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(7, 1, 1+20*(7-1))
-        als = np.logspace(8, 1, 1+20*(8-1))
+        als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-2))
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
@@ -305,7 +304,7 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sigma_type, bs, als_plot=[]):
+def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
     resample = sig.results['resample'][bs]
@@ -317,7 +316,7 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
 
     if sigma_type == 'xx':
         # See color plot of sig_xx spectra vs. alphas
-        # sig._calc_sigma_xx_bins(resample, inspect_al = True)
+        if redo_select_al: sig._calc_sigma_xx_bins(resample, inspect_al = True)
         As = sig.results['As_xx'][bs]
         sigmas_xx_al = np.real(As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi)
         sigmas_al = sigmas_xx_al
@@ -327,7 +326,7 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
         als = sig.input_xx['als']
     else:
         # See color plot of im_sig_xy vs. alphas
-        # sig._calc_sigma_xy_bins(resample, inspect_al = True)
+        if redo_select_al: sig._calc_sigma_xy_bins(resample, inspect_al = True)
         # sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
         As = sig.results['As_sum'][bs]
         sigmas_xx = sig.results['re_sig_xx'][bs]
@@ -351,22 +350,24 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
     ax[0].set_ylabel(r'$\chi^2$')
 
     # Color plot
-    # from matplotlib.colors import TwoSlopeNorm
-    # lim = max(np.min(sigmas_al), np.max(sigmas_al))
-    # norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
+    lim = max(np.nanmin(sigmas_al), np.nanmax(sigmas_al))/2
+    print(lim)
+    from matplotlib.colors import TwoSlopeNorm
+    norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
     X, Y = np.meshgrid(als, sig.ws)
-    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_al), cmap='viridis', rasterized=True, )
+    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_al), cmap='plasma', rasterized=True, norm=norm)
     ax[1].invert_yaxis()
     ax[1].set_xscale('log')
     fig.colorbar(pcol, ax=ax[1])
     ax[1].set_xlabel(r'$\alpha$')
     ax[1].set_ylabel(r'$\omega$')
+    ax[1].set_ylim(-20, 20)
 
     # Spectrum plot
     if len(als_plot) == 1:
         colors = ['r']
     else:
-        colors = sns.color_palette('husl', len(als_plot)-1)
+        colors = sns.color_palette('tab10', len(als_plot)-1)
         colors.append('r')
     for i, al_plot in enumerate(als_plot):
         color = colors[i]
@@ -375,10 +376,10 @@ def inspect_al(sig, sigma_type, bs, als_plot=[]):
         for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
     ax[2].set_xlabel(r'$\omega$')
     ax[2].set_ylabel(sig_label)
+    ax[2].set_xlim(-20, 20)
     ax[2].legend()
 
     plt.show()
-# Also though, for a given bootstrap, want to be able to see what spectrum looks like for given al
 
 def compare_chi_tau(sigs, mode='xx'):
     # Verify that sig1 and sig2 have the same data
