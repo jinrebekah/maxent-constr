@@ -51,8 +51,6 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    # if opt_method=='cvxpy':
-    #     als = np.logspace(7, 3, 160*4//8)
     al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
@@ -85,13 +83,15 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     Returns:
         al (float): Optimal alpha value.
     """
-    As = np.zeros((als.shape[0], K.shape[1]))
+    N = K.shape[1]
+    As = np.zeros((als.shape[0], N))
     Qs = np.zeros_like(als)
     Ss = np.zeros_like(als)
     chi2s = np.zeros_like(als)
 
-    ### Precalculate SVD matrices for Bryan's method
+    ### Calculate Q, S, chi2 for all alphas in als
     if opt_method == "Bryan":
+        # Precalculate SVD matrices
         svd_threshold = 1e-12   # consider singular values less than threshold 0
         V, Sigma, U = np.linalg.svd(K, False)
         mask = (Sigma/Sigma.max() >= svd_threshold) # drop singular values less than threshold
@@ -100,82 +100,49 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         M = np.dot(SigmaVT * W, SigmaVT.T)
         precalc = (U, SigmaVT, M)
         # Useful constants
-        N = K.shape[1]
         s = M.shape[0]
+        
         us = np.zeros((als.shape[0], M.shape[0]))
-
-    ### Calculate Q, S, chi2 for all alphas in als
-    # for i, al in enumerate(als):
-    #     if opt_method == 'Bryan':
-    #         u_init = us[i-1]
-    #         # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
-    #         As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
-    #     elif opt_method == "cvxpy": 
-    #         try:
-    #             A_init = As[i-1]
-    #             As[i] = find_A_cvxpy(G, K, m, W, al, A_init=A_init, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
-    #         except Exception as e:
-    #             print(f"find_A_cvxpy failed for {al:.2e} with error: {e}")
-    #             As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
-    #         # As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
-    #     Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
-
-    if opt_method == 'Bryan':
         for i, al in enumerate(als):
             u_init = us[i-1]
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
             As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
-            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True)
     elif opt_method == "cvxpy": 
-        N = K.shape[1]
-
+        # Calling prob.solve on the same problem is much faster than calling find_A_cvxpy, calculation moved here
         # Define problem
         A = cp.Variable(N, pos=True)
         alpha = cp.Parameter(nonneg=True)
         S = cp.sum(A-m-cp.rel_entr(A, m))
         chi2 = cp.square(K@(A)-G)@W
         objective = cp.Maximize(alpha*S - 0.5*chi2)
-
-        # Define constraints (if any)
-        constraints = []
-        if constr_matrix is not None:
-            constraints.append(constr_matrix@A == constr_vec)   # Add linear symmetry constraint
+        constraints = [constr_matrix@A == constr_vec] if constr_matrix is not None else [] # Add linear symmetry constraint
         prob = cp.Problem(objective, constraints)
 
         for i, al in enumerate(als):
             try:
                 alpha.value = al
-                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True)
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=1e-7) # More feasibility settings to be adjusted
                 As[i] = A.value
             except Exception as e:
-                print(f"find_A_cvxpy failed for {al:.2e} with error: {e}")
+                print(f"{al:.2e} optimization failed with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
-            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
-            # break
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # nan too if A has nan
+
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
     # Filter out nans
-    valid_indices = ~np.isnan(chi2s)
-    valid_als = als[valid_indices]
-    valid_chi2s = chi2s[valid_indices]
+    valid_chi2s = chi2s[~np.isnan(chi2s)]
+    valid_als = als[~np.isnan(chi2s)]
     order = valid_als.argsort()
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
-        # print('smooth BT')
+        # Originally more modified version but I decided max curvature was fine/better
         fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
-        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-        al_idx = k.argmax()
-        # k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**100
-        k_range = max(k)-min(k)
-        result = scipy.signal.find_peaks(k, prominence=k_range/5)
-        peaks = result[0]
-        # al_idx = peaks[-1]
     else:
         # Default BT
-        # Actually jk I'm smoothing it out a tiny bit and let's see
-        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=0.02)
-        # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
-        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-        al_idx = k.argmax()
+        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
+    k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+    al_idx = k.argmax()
     al = als[al_idx]
 
     ### Optional plots for debugging
@@ -212,11 +179,8 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
         plt.show()
-
     return al, As, chi2s
 
-
-    
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
 
@@ -253,8 +217,8 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
         U, SigmaVT, M = precalc
         s = u.shape[0]
         A = m*np.exp(U@u)
-        T = np.dot(U.T * A, U)   # changes with u
-        return -((al)*np.identity(s) + M@T)   ###### sign thing
+        T = np.dot(U.T * A, U)
+        return -((al)*np.identity(s) + M@T)
     def get_step_size(u, du, precalc):
         U, SigmaVT, M = precalc
         A = m*np.exp(U@u)
@@ -279,13 +243,12 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     Q_old = Q_u(u, G, K, m, W, al, precalc, return_all=False)
 
     ### Search
-    import time
     small_dQ = 0
     for i in range(max_iter):
         grad = grad_Q(u, G, K, m, W, al, precalc)
         hess = hess_Q(u, G, K, m, W, al, precalc)
         
-        du = np.linalg.solve(hess-mu*np.identity(s), -grad)  # This is what's taking so long on my mac I guess
+        du = np.linalg.solve(hess-mu*np.identity(s), -grad)
         step_size = get_step_size(u, du, precalc)
         
         Q_new = Q_u(u+du, G, K, m, W, al, precalc, return_all=False)
@@ -307,13 +270,12 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
             mu = np.clip(mu*mu_multiplier, mu_min, mu_max)
         
         if inspect:
+            # Supposed to print a table of values for inspection but doesn't look very good lmao
             format_string = "{:<20}{:<20}{:<20}{:<20}"
             if i==0:
                 print(format_string.format(*['Iter', 'Q', 'Step size', 'Grad.']))
                 print("-" * 60)
-            print(format_string.format(*[i, Q_new, step_size, np.linalg.norm(grad)]))
-            
-            
+            print(format_string.format(*[i, Q_new, step_size, np.linalg.norm(grad)]))   
     else:
         print(f"Reached max iterations {max_iter} :(")
         
@@ -321,6 +283,7 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     return A, u
 
 def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=None, inspect=False):
+    # Don't use this, it takes too long
     """Calculate A for given alpha using cvxpy convex optimization package.
 
     Optimizes Q[A; al] directly over A (rather than reduced space).
@@ -372,7 +335,6 @@ def Q_u(u, G, K, m, W, al, precalc, return_all=False):
 
 def Q(A, G, K, m, W, al, return_all=False):
     if np.isnan(A).any():
-        # Return NaN of appropriate shape
         if return_all:
             return np.nan, np.nan, np.nan
         return np.nan
