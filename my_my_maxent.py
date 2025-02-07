@@ -10,11 +10,11 @@ import util
 
 from scipy.interpolate import CubicSpline
 import math
-
+ 
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als=np.logspace(9, 1, 1+20*(9-1)), inspect=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -45,27 +45,25 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, als
     W_cap = W_ratio_max*W.min()
     n_large = np.sum(W.max() > W_cap)
     if W.max() > W_cap:
-        print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
+        # print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
         W[W > W_cap] = W_cap # Set values of W above W_cap to W_cap
     Kp = np.dot(Uc, K)
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    if opt_method=='cvxpy':
-        als = np.logspace(7, 3, 160*4//8)
-    al = select_al(Gavgp, Kp, m, W, als, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect)
+    al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
-        A, _ = find_A_Bryan(Gavgp, Kp, m, W, al)   #### issue with u_init here, come back to it
+        A, _ = find_A_Bryan(Gavgp, Kp, m, W, al, inspect=inspect_opt)   #### issue with u_init here, come back to it
     elif opt_method == 'cvxpy':
-        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec)
+        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
+
+    return A, al, As, chi2s
     
-    return A
-    
-def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_vec=None, inspect=False):
+def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
     """Selects optimal alpha using BT method. 
     
     BT method calculates chi2 for optimized spectrum A* for every al in als.
@@ -78,20 +76,22 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         als (array): Array of alpha values over which to maximize Q.
         opt_method (str): Optimization method used to maximize Q. Options are:
             - 'Bryan': Bryan's method.
-            - 'cvx': Convex optimization method.
+            - 'cvxpy': Convex optimization method.
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraint B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraint B*A=b (Default: None).
         inspect : asdf
     Returns:
         al (float): Optimal alpha value.
     """
-    As = np.zeros((als.shape[0], K.shape[1]))
+    N = K.shape[1]
+    As = np.zeros((als.shape[0], N))
     Qs = np.zeros_like(als)
     Ss = np.zeros_like(als)
     chi2s = np.zeros_like(als)
 
-    ### Precalculate SVD matrices for Bryan's method
+    ### Calculate Q, S, chi2 for all alphas in als
     if opt_method == "Bryan":
+        # Precalculate SVD matrices
         svd_threshold = 1e-12   # consider singular values less than threshold 0
         V, Sigma, U = np.linalg.svd(K, False)
         mask = (Sigma/Sigma.max() >= svd_threshold) # drop singular values less than threshold
@@ -100,86 +100,88 @@ def select_al(G, K, m, W, als, opt_method="Bryan", constr_matrix=None, constr_ve
         M = np.dot(SigmaVT * W, SigmaVT.T)
         precalc = (U, SigmaVT, M)
         # Useful constants
-        N = K.shape[1]
         s = M.shape[0]
+        
         us = np.zeros((als.shape[0], M.shape[0]))
-
-    ### Calculate Q, S, chi2 for all alphas in als
-    for i, al in enumerate(als):
-        if opt_method == 'Bryan':
+        for i, al in enumerate(als):
             u_init = us[i-1]
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
-            As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc)
-        elif opt_method == "cvxpy":        
-            As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec)
-        Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True)
+            As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True)
+    elif opt_method == "cvxpy": 
+        # Calling prob.solve on the same problem is much faster than calling find_A_cvxpy, calculation moved here
+        # Define problem
+        A = cp.Variable(N, pos=True)
+        alpha = cp.Parameter(nonneg=True)
+        S = cp.sum(A-m-cp.rel_entr(A, m))
+        chi2 = cp.square(K@(A)-G)@W
+        objective = cp.Maximize(alpha*S - 0.5*chi2)
+        constraints = [constr_matrix@A == constr_vec] if constr_matrix is not None else [] # Add linear symmetry constraint
+        prob = cp.Problem(objective, constraints)
+
+        for i, al in enumerate(als):
+            try:
+                alpha.value = al
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=1e-7) # More feasibility settings to be adjusted
+                As[i] = A.value
+            except Exception as e:
+                print(f"{al:.2e} optimization failed with error: {e}")
+                As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # nan too if A has nan
 
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
-    # If constrained, make spline fit smoother bc chi2 is much more noisy
-    # And choose curvature peak occurring at smallest al (not necessarily max)
-    order = als.argsort()
-    # if constr_matrix is None or opt_method == 'Bryan':
-    #     fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
-    #     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    #     i = k.argmax()
-    # else:
-    fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=2)
+    # Filter out nans
+    valid_chi2s = chi2s[~np.isnan(chi2s)]
+    valid_als = als[~np.isnan(chi2s)]
+    order = valid_als.argsort()
+    if smooth:
+        # Smooth modified BT, currently for use with constrained xy data
+        # Originally more modified version but I decided max curvature was fine/better
+        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
+    else:
+        # Default BT
+        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    k_range = max(k)-min(k)
-    result = scipy.signal.find_peaks(k, prominence=k_range/5)
-    peaks = result[0]
-    i = peaks[-1]
-    
-    al = als[i]
+    al_idx = k.argmax()
+    al = als[al_idx]
 
-    # inspect=False
-    # if math.floor(math.log(al, 10)) != 6 and opt_method == 'cvxpy':
-    #     inspect=True
     ### Optional plots for debugging
-    if inspect:
+    if inspect_al:
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
-        # Specifically for debugging (constrained) al selection.
-        fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
-        ax[0].plot(als, np.exp(fit(np.log(als))), color='r')
+        fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2/1.2, default_figsize[1]/1.2), layout='constrained')
         ax[0].scatter(als, chi2s, s=1.5)
-        ax[0].set_title("Smoothed spline chi2 vs. als fit", fontsize=10)
-        ax[0].set_xscale("log")
-        ax[0].set_yscale("log")
+        ax[0].loglog(als, np.exp(fit(np.log(als))), color='r', label='f')
         ax[0].set_xlabel(r"$\alpha$")
         ax[0].set_ylabel(r"$\chi^2$")
-        ax[0].axvline(al, color='g')
+        ax[0].axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+
         ax[1].plot(als, k)
         ax[1].set_xscale("log")
-        # if constr_matrix is not None and opt_method != 'Bryan':
-        ax[1].scatter(als[peaks], k[peaks], s=5)
-        ax[1].scatter(als[i], k[i], color='g', s=5)
-        ax[1].set_title("Fit 2nd derivative", fontsize=10)
-        plt.tight_layout()
-        plt.show()
-    # if plot_all:
+        ax[1].set_ylabel(r"$f''/(1 + f'^2)^{1.5}$")
+        # ax[1].plot(als, fit(np.log(als), 2)) # Plot 2nd derivative directly
+        # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
+        if smooth:
+            ax[1].scatter(als[peaks], k[peaks], s=5)
+            ax[1].scatter(als[i], k[i], color='g', s=5)
+        
         # Plot Q, S, and chi2.
         xlim=(0, 10**6)
-        fig, ax = plt.subplots(nrows=3, figsize=(default_figsize[0], default_figsize[1]*3))
+        fig, ax = plt.subplots(ncols=3, figsize=(default_figsize[0]*3/1.2, default_figsize[1]/1.2), layout='constrained')
         plot_list = [chi2s, Qs, Ss]
         plot_labels = [r"$\chi^2$", r"$Q$", r"$S$"]
-        fig.subplots_adjust(hspace=0.1)
         for i in range(3):
             ax[i].scatter(als, plot_list[i])
             ax[i].set_xscale("log")
+            ax[i].set_xlabel(r"$\alpha$")
             ax[i].set_ylabel(plot_labels[i])
-            ax[i].axvline(al)
-            if i!=2:
-                ax[i].set_xticks([])
+            ax[i].axvline(al, color='g')
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
-        ax[2].set_xlabel(r"$\alpha$")
         plt.show()
+    return al, As, chi2s
 
-    # print("Alpha: ", f"{al:.2e}")
-    return al
-    
-def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
+def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
 
     Bryan's algorithm optimizes Q over a smaller singular space using unconstrained Newton's method (with Marquardt-Levenberg),
@@ -215,8 +217,8 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
         U, SigmaVT, M = precalc
         s = u.shape[0]
         A = m*np.exp(U@u)
-        T = np.dot(U.T * A, U)   # changes with u
-        return -((al)*np.identity(s) + M@T)   ###### sign thing
+        T = np.dot(U.T * A, U)
+        return -((al)*np.identity(s) + M@T)
     def get_step_size(u, du, precalc):
         U, SigmaVT, M = precalc
         A = m*np.exp(U@u)
@@ -245,7 +247,8 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
     for i in range(max_iter):
         grad = grad_Q(u, G, K, m, W, al, precalc)
         hess = hess_Q(u, G, K, m, W, al, precalc)
-        du = np.linalg.solve(hess-mu*np.identity(s), -grad)   # sign of mu term ambiguity, pretty sure it breaks if you change it though lol
+        
+        du = np.linalg.solve(hess-mu*np.identity(s), -grad)
         step_size = get_step_size(u, du, precalc)
         
         Q_new = Q_u(u+du, G, K, m, W, al, precalc, return_all=False)
@@ -265,13 +268,22 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None):
         else:
             # Reject step, increase mu
             mu = np.clip(mu*mu_multiplier, mu_min, mu_max)
+        
+        if inspect:
+            # Supposed to print a table of values for inspection but doesn't look very good lmao
+            format_string = "{:<20}{:<20}{:<20}{:<20}"
+            if i==0:
+                print(format_string.format(*['Iter', 'Q', 'Step size', 'Grad.']))
+                print("-" * 60)
+            print(format_string.format(*[i, Q_new, step_size, np.linalg.norm(grad)]))   
     else:
         print(f"Reached max iterations {max_iter} :(")
-                
+        
     A = m*np.exp(U@u)
     return A, u
 
-def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None):
+def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=None, inspect=False):
+    # Don't use this, it takes too long
     """Calculate A for given alpha using cvxpy convex optimization package.
 
     Optimizes Q[A; al] directly over A (rather than reduced space).
@@ -293,13 +305,15 @@ def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None):
     S = cp.multiply(al, cp.sum(A-m-cp.rel_entr(A, m)))
     chi2 = cp.square(K@(A)-G)@W
     objective = cp.Maximize(S - 0.5*chi2)
-    
+
     # Define constraints (if any)
     constraints = []
     if constr_matrix is not None:
         constraints.append(constr_matrix@A == constr_vec)   # Add linear symmetry constraint
     # Solve problem
     prob = cp.Problem(objective, constraints)
+    if np.any(A_init):
+        A.value = A_init
     Q_optimal = prob.solve(verbose=False, warm_start=True)
     if math.isinf(Q_optimal) or math.isnan(Q_optimal):
         print("Invalid optimal objective value. Solution most likely contains negative values near the endpoints.")
@@ -320,6 +334,11 @@ def Q_u(u, G, K, m, W, al, precalc, return_all=False):
     return (al*S - 0.5*chi2)
 
 def Q(A, G, K, m, W, al, return_all=False):
+    if np.isnan(A).any():
+        if return_all:
+            return np.nan, np.nan, np.nan
+        return np.nan
+    
     S = (A - m - scipy.special.xlogy(A, A/m)).sum()
     KAG = K@A - G
     chi2 = np.dot(KAG*KAG, W)
