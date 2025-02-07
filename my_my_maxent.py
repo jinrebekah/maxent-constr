@@ -105,24 +105,54 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         us = np.zeros((als.shape[0], M.shape[0]))
 
     ### Calculate Q, S, chi2 for all alphas in als
-    for i, al in enumerate(als):
-        if opt_method == 'Bryan':
+    # for i, al in enumerate(als):
+    #     if opt_method == 'Bryan':
+    #         u_init = us[i-1]
+    #         # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
+    #         As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
+    #     elif opt_method == "cvxpy": 
+    #         try:
+    #             A_init = As[i-1]
+    #             As[i] = find_A_cvxpy(G, K, m, W, al, A_init=A_init, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+    #         except Exception as e:
+    #             print(f"find_A_cvxpy failed for {al:.2e} with error: {e}")
+    #             As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
+    #         # As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+    #     Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
+
+    if opt_method == 'Bryan':
+        for i, al in enumerate(als):
             u_init = us[i-1]
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
             As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
-        elif opt_method == "cvxpy": 
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
+    elif opt_method == "cvxpy": 
+        N = K.shape[1]
+
+        # Define problem
+        A = cp.Variable(N, pos=True)
+        alpha = cp.Parameter(nonneg=True)
+        S = cp.sum(A-m-cp.rel_entr(A, m))
+        chi2 = cp.square(K@(A)-G)@W
+        objective = cp.Maximize(alpha*S - 0.5*chi2)
+
+        # Define constraints (if any)
+        constraints = []
+        if constr_matrix is not None:
+            constraints.append(constr_matrix@A == constr_vec)   # Add linear symmetry constraint
+        prob = cp.Problem(objective, constraints)
+
+        for i, al in enumerate(als):
             try:
-                As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+                alpha.value = al
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True)
+                As[i] = A.value
             except Exception as e:
                 print(f"find_A_cvxpy failed for {al:.2e} with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
-            # As[i] = find_A_cvxpy(G, K, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
-        Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
-
+            Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # these are nan too if A has nan
+            # break
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
-    # If constrained, make spline fit smoother bc chi2 is much more noisy
-    # And choose curvature peak occurring at smallest al (not necessarily max)
-    
     # Filter out nans
     valid_indices = ~np.isnan(chi2s)
     valid_als = als[valid_indices]
@@ -131,13 +161,14 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
         # print('smooth BT')
-        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=0.5)
+        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        al_idx = k.argmax()
         # k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**100
         k_range = max(k)-min(k)
         result = scipy.signal.find_peaks(k, prominence=k_range/5)
         peaks = result[0]
-        al_idx = peaks[-1]
+        # al_idx = peaks[-1]
     else:
         # Default BT
         # Actually jk I'm smoothing it out a tiny bit and let's see
@@ -147,9 +178,6 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         al_idx = k.argmax()
     al = als[al_idx]
 
-    # inspect=False
-    # if math.floor(math.log(al, 10)) != 6 and opt_method == 'cvxpy':
-    #     inspect=True
     ### Optional plots for debugging
     if inspect_al:
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
@@ -292,7 +320,7 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     A = m*np.exp(U@u)
     return A, u
 
-def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None, inspect=False):
+def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=None, inspect=False):
     """Calculate A for given alpha using cvxpy convex optimization package.
 
     Optimizes Q[A; al] directly over A (rather than reduced space).
@@ -314,13 +342,15 @@ def find_A_cvxpy(G, K, m, W, al, constr_matrix=None, constr_vec=None, inspect=Fa
     S = cp.multiply(al, cp.sum(A-m-cp.rel_entr(A, m)))
     chi2 = cp.square(K@(A)-G)@W
     objective = cp.Maximize(S - 0.5*chi2)
-    
+
     # Define constraints (if any)
     constraints = []
     if constr_matrix is not None:
         constraints.append(constr_matrix@A == constr_vec)   # Add linear symmetry constraint
     # Solve problem
     prob = cp.Problem(objective, constraints)
+    if np.any(A_init):
+        A.value = A_init
     Q_optimal = prob.solve(verbose=False, warm_start=True)
     if math.isinf(Q_optimal) or math.isnan(Q_optimal):
         print("Invalid optimal objective value. Solution most likely contains negative values near the endpoints.")
