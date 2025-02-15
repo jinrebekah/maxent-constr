@@ -88,6 +88,8 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     Qs = np.zeros_like(als)
     Ss = np.zeros_like(als)
     chi2s = np.zeros_like(als)
+    # statuses = []
+    statuses = np.empty(len(als), dtype=object)
 
     ### Calculate Q, S, chi2 for all alphas in als
     if opt_method == "Bryan":
@@ -101,7 +103,6 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         precalc = (U, SigmaVT, M)
         # Useful constants
         s = M.shape[0]
-        
         us = np.zeros((als.shape[0], M.shape[0]))
         for i, al in enumerate(als):
             u_init = us[i-1]
@@ -118,15 +119,20 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         objective = cp.Maximize(alpha*S - 0.5*chi2)
         constraints = [constr_matrix@A == constr_vec] if constr_matrix is not None else [] # Add linear symmetry constraint
         prob = cp.Problem(objective, constraints)
-
+        tol = 1e-6
         for i, al in enumerate(als):
             try:
                 alpha.value = al
-                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=1e-7) # More feasibility settings to be adjusted
+                # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted
                 As[i] = A.value
+                # statuses.append(prob.status)
+                statuses[i] = prob.status
             except Exception as e:
                 print(f"{al:.2e} optimization failed with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
+                # statuses.append('fail')
+                statuses[i] = 'fail'
             Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # nan too if A has nan
 
     ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
@@ -147,10 +153,15 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
 
     ### Optional plots for debugging
     if inspect_al:
+        # Report how many failed to solve
+        print(f"Als failed to solve: {np.isnan(chi2s).sum()}/{len(als)}")
+
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
+        # Also plot whether points were 'optimal_inaccurate'
         fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2/1.2, default_figsize[1]/1.2), layout='constrained')
-        ax[0].scatter(als, chi2s, s=1.5)
-        ax[0].loglog(als, np.exp(fit(np.log(als))), color='r', label='f')
+        ax[0].loglog(als, np.exp(fit(np.log(als))), color='r', label='f', zorder=-5)
+        ax[0].scatter(als[statuses=='optimal'], chi2s[statuses=='optimal'], s=1.5)
+        ax[0].scatter(als[statuses=='optimal_inaccurate'], chi2s[statuses=='optimal_inaccurate'], s=3)
         ax[0].set_xlabel(r"$\alpha$")
         ax[0].set_ylabel(r"$\chi^2$")
         ax[0].axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
@@ -161,9 +172,9 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         ax[1].set_ylabel(r"$f''/(1 + f'^2)^{1.5}$")
         # ax[1].plot(als, fit(np.log(als), 2)) # Plot 2nd derivative directly
         # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
-        if smooth:
-            ax[1].scatter(als[peaks], k[peaks], s=5)
-            ax[1].scatter(als[i], k[i], color='g', s=5)
+        # if smooth:
+        #     ax[1].scatter(als[peaks], k[peaks], s=5)
+        #     ax[1].scatter(als[i], k[i], color='g', s=5)
         
         # Plot Q, S, and chi2.
         xlim=(0, 10**6)

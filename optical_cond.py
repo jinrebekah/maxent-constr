@@ -110,7 +110,6 @@ class sigma:
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
-        # inspect_al = settings['inspect_al'] if self.bs==0 else False # overrides input, can only be true for bs = 0
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
         als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-2))
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al, 'als': als}
@@ -350,7 +349,7 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
     ax[0].set_ylabel(r'$\chi^2$')
 
     # Color plot
-    lim = max(np.nanmin(sigmas_al), np.nanmax(sigmas_al))/2
+    lim = max(np.nanmin(sigmas_al), np.nanmax(sigmas_al))
     print(lim)
     from matplotlib.colors import TwoSlopeNorm
     norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
