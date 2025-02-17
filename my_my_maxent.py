@@ -119,15 +119,23 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         objective = cp.Maximize(alpha*S - 0.5*chi2)
         constraints = [constr_matrix@A == constr_vec] if constr_matrix is not None else [] # Add linear symmetry constraint
         prob = cp.Problem(objective, constraints)
-        tol = 1e-6
+        tol = 1e-7
+        c=0
         for i, al in enumerate(als):
             try:
                 alpha.value = al
                 # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted
-                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted
+                # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol) # More feasibility settings to be adjusted
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True) # More feasibility settings to be adjusted
                 As[i] = A.value
                 # statuses.append(prob.status)
                 statuses[i] = prob.status
+                # if prob.status == 'optimal':
+                #     Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=True, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol,tol_gap_abs=tol,tol_gap_rel=tol) # More feasibility settings to be adjusted
+                #     break
+                # if prob.status == 'optimal_inaccurate' and c==0:
+                #     Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=True, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol,tol_gap_abs=tol,tol_gap_rel=tol) # More feasibility settings to be adjusted
+                #     c+=1
             except Exception as e:
                 print(f"{al:.2e} optimization failed with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
@@ -175,6 +183,14 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         # if smooth:
         #     ax[1].scatter(als[peaks], k[peaks], s=5)
         #     ax[1].scatter(als[i], k[i], color='g', s=5)
+
+        # Plot constraint residuals
+        if smooth:
+            fig, ax = plt.subplots()
+            resids = [np.abs(constr_matrix@A-constr_vec) for A in As]   # each resid is vec length N/2
+            resids_max = [max(resid) for resid in resids]
+            ax.scatter(als, resids_max)
+            ax.set_xscale('log')
         
         # Plot Q, S, and chi2.
         xlim=(0, 10**6)

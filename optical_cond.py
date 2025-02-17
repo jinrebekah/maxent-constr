@@ -419,6 +419,17 @@ def compare_chi_tau(sigs, mode='xx'):
     # plt.tight_layout()
     plt.show()
 
+def inspect_symm(sig, bs=0):
+    # uh plot symmetry residuals of optimal solution for now
+    
+    im_sig_xy = sig.results['im_sig_xy'].tolist()[bs]
+
+    resids = np.abs(im_sig_xy[sig.N//2:] - (-im_sig_xy[:sig.N//2][::-1]))    # compare right half of re_sig_xy with left half
+    
+    fig, ax = plt.subplots()
+    ax.scatter(sig.ws[sig.N//2:], resids)
+
+
 def find_nearest(array, value, get_idx = False):
     diff_arr = array - value
     if array.ndim == 1:
