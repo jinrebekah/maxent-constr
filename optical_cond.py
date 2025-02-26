@@ -12,6 +12,8 @@ if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
 else:
     sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
+# import jqjq
+
 from tqdm import tqdm
 import math
 import pandas as pd
@@ -398,10 +400,16 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
         colors = sns.color_palette('tab10', len(als_plot)-1)
         colors.append('r')
     for i, al_plot in enumerate(als_plot):
+        
+
         color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
         ax[2].plot(sig.ws, sigmas_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
         for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
+
+        if i == 1:
+            print(sigmas_al[al_idx]-sig.results['im_sig_xy'][bs])
+
     ax[2].set_xlabel(r'$\omega$')
     ax[2].set_ylabel(sig_label)
     ax[2].set_xlim(-20, 20)

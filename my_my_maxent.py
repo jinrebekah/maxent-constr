@@ -54,19 +54,20 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt)
+    tol=1e-7
+    al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
 
     # ---------- Calculate A with optimal al ----------
     if opt_method == 'Bryan':
         A, _ = find_A_Bryan(Gavgp, Kp, m, W, al, inspect=inspect_opt)   #### issue with u_init here, come back to it
     elif opt_method == 'cvxpy':
-        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt)
+        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt, tol=tol)
     else:
         raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
 
     return A, al, As, chi2s
     
-def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False):
+def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False, tol=1e-8):
     """Selects optimal alpha using BT method. 
     
     BT method calculates chi2 for optimized spectrum A* for every al in als.
@@ -122,27 +123,18 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         objective = cp.Maximize(alpha*S - 0.5*chi2)
         constraints = [constr_matrix@A == constr_vec] if constr_matrix is not None else [] # Add linear symmetry constraint
         prob = cp.Problem(objective, constraints)
-        tol = 1e-7
+        
         c=0
         for i, al in enumerate(als):
             try:
                 alpha.value = al
-                # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_gap_abs=tol, tol_gap_rel=tol, tol_infeas_abs=tol, tol_infeas_rel=tol) # More feasibility settings to be adjusted
-                # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol) # More feasibility settings to be adjusted
-                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True) # More feasibility settings to be adjusted
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol)
+                # Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True) # More feasibility settings to be adjusted
                 As[i] = A.value
-                # statuses.append(prob.status)
                 statuses[i] = prob.status
-                # if prob.status == 'optimal':
-                #     Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=True, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol,tol_gap_abs=tol,tol_gap_rel=tol) # More feasibility settings to be adjusted
-                #     break
-                # if prob.status == 'optimal_inaccurate' and c==0:
-                #     Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=True, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol,tol_gap_abs=tol,tol_gap_rel=tol) # More feasibility settings to be adjusted
-                #     c+=1
             except Exception as e:
                 print(f"{al:.2e} optimization failed with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
-                # statuses.append('fail')
                 statuses[i] = 'fail'
             Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # nan too if A has nan
 
@@ -312,7 +304,7 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     A = m*np.exp(U@u)
     return A, u
 
-def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=None, inspect=False):
+def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=None, inspect=False, tol=1e-8):
     # Don't use this, it takes too long
     """Calculate A for given alpha using cvxpy convex optimization package.
 
@@ -344,7 +336,7 @@ def find_A_cvxpy(G, K, m, W, al, A_init=None, constr_matrix=None, constr_vec=Non
     prob = cp.Problem(objective, constraints)
     if np.any(A_init):
         A.value = A_init
-    Q_optimal = prob.solve(verbose=False, warm_start=True)
+    Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol)
     if math.isinf(Q_optimal) or math.isnan(Q_optimal):
         print("Invalid optimal objective value. Solution most likely contains negative values near the endpoints.")
     A = A.value
