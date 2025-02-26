@@ -6,8 +6,11 @@ import my_my_maxent as maxent
 import importlib
 importlib.reload(maxent)
 import sys
-# sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
-sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
+
+if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
+    sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
+else:
+    sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
 from tqdm import tqdm
 import math
@@ -18,6 +21,7 @@ import pickle
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
+# Do sys thing
 # Actually restore the old "smoothed" alpha selection
 
 
