@@ -4,8 +4,8 @@ import cvxpy as cp
 import scipy
 
 import sys 
-# sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
-sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
+sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
+# sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
 
 from scipy.interpolate import CubicSpline

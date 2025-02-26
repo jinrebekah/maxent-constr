@@ -13,58 +13,83 @@ from tqdm import tqdm
 import math
 import pandas as pd
 import seaborn as sns
+import pickle
 
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
+# Actually restore the old "smoothed" alpha selection
+
+
 class sigma:
-    def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}):
-        # Store simulation parameters
-        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
-        )
-        self.T = 1/self.beta
-        self.taus = np.linspace(0, self.beta, self.L + 1)
+    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}, pickle_file=None):
+    # def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}, pickle_file=None):
+        if pickle_file:
+            with open(pickle_file, 'rb') as file:
+                self.results = pickle.load(file)
+                metadata = pickle.load(file)
 
-        self.ws = ws
-        self.dws = dws
-        self.N = len(ws)
-        self.bs = bs
-        self.sigma_type = sigma_type
-
-        self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
-        self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
-
-        # Set solver settings (stupid)
-        settings_xx_default = {
-            'mdl': 'flat', 
-            'krnl': 'symm', 
-            'opt_method': 'Bryan',
-            'inspect_al': False,
-            'smooth_al': False
-        }
-        self.settings_xx = {**settings_xx_default, **settings_xx}
-        self.input_xx = self._get_settings_vals(self.settings_xx)
-
-        settings_xy_default = {
-            'mdl': 'flat',
-            'opt_method': 'Bryan',
-            'inspect_al': False,
-            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
-        }
-        self.settings_xy = {**settings_xy_default, **settings_xy}
-        self.input_xy = self._get_settings_vals(self.settings_xy)
-
-        # Initialize sigma results storage df
-        results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
-        if sigma_type == 'xy':
-            results[['sum_sig','A_sum', 'im_sig_xy', 're_sig_xy']] = [None] * 4
-
-        # Solve for sigma
-        if sigma_type == 'xx':
-            self.calc_sigma_xx()
-        if sigma_type == 'xy':
-            self.calc_sigma_xy()
+            # Store simulation parameters from metadata
+            print(metadata.keys())
+            self.settings_xx, self.settings_xy = metadata['settings_xx'], metadata['settings_xy']
+            self.bs, self.ws, self.dws = metadata['bs'], metadata['ws'], metadata['dws']
+            
+            # self.sigma_type = metadata['sigma_type']
+            self.sigma_type = 'xy'
+            # self.xs = metadata['xs']
+            self.xs = np.linspace(-np.max(self.ws), np.max(self.ws), 1500)
+            
+            self.N = len(self.ws)
+            self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
+                metadata['path'], "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
+            )
+        else:
+            # Store simulation parameters
+            self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
+                path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
+            )
+            self.T = 1/self.beta
+            self.taus = np.linspace(0, self.beta, self.L + 1)
+    
+            self.ws = ws
+            self.dws = dws
+            self.N = len(ws)
+            self.bs = bs
+            self.sigma_type = sigma_type
+    
+            self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
+            self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
+    
+            # Set solver settings (stupid)
+            settings_xx_default = {
+                'mdl': 'flat', 
+                'krnl': 'symm', 
+                'opt_method': 'Bryan',
+                'inspect_al': False,
+                'smooth_al': False
+            }
+            self.settings_xx = {**settings_xx_default, **settings_xx}
+            self.input_xx = self._get_settings_vals(self.settings_xx)
+    
+            settings_xy_default = {
+                'mdl': 'flat',
+                'opt_method': 'Bryan',
+                'inspect_al': False,
+                'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
+            }
+            self.settings_xy = {**settings_xy_default, **settings_xy}
+            self.input_xy = self._get_settings_vals(self.settings_xy)
+    
+            # Initialize sigma results storage df
+            results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
+            if sigma_type == 'xy':
+                results[['sum_sig','A_sum', 'im_sig_xy', 're_sig_xy']] = [None] * 4
+    
+            # Solve for sigma
+            if sigma_type == 'xx':
+                self.calc_sigma_xx()
+            if sigma_type == 'xy':
+                self.calc_sigma_xy()
 
     def _load_data(self, path):
         """Loads j-j data."""
