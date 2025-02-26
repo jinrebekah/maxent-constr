@@ -6,7 +6,7 @@ import my_my_maxent as maxent
 import importlib
 importlib.reload(maxent)
 import sys
-
+import os
 if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
     sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
 else:
