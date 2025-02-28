@@ -51,6 +51,7 @@ class sigma:
             )
         else:
             # Store simulation parameters
+            self.path = path
             self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
                 path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
             )
@@ -167,6 +168,7 @@ class sigma:
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
+            print('xx', g)
             A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
@@ -212,6 +214,7 @@ class sigma:
         f = np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
+        print('here', g)
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
             A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
@@ -317,7 +320,7 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
         else:
             # Plot all bootstraps on top of each other
             for i in range(len(sig_bs)):
-                ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
+                ax.scatter(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
     else:
         # Plot all bins result
         ax.plot(ws, sig.results[sigma_name][0])
@@ -360,8 +363,10 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
         # sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
         As = sig.results['As_sum'][bs]
         sigmas_xx = sig.results['re_sig_xx'][bs]
+        
+        sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean()))*np.pi
+        # sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
 
-        sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean())*np.pi)
         sigmas_al = sigmas_sum_al - sigmas_xx
         optimal_al = sig.results['al_sum'][bs]
         chi2s = sig.results['chi2s_sum'][bs]
@@ -400,13 +405,16 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
         colors = sns.color_palette('tab10', len(als_plot)-1)
         colors.append('r')
     for i, al_plot in enumerate(als_plot):
-        
-
         color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
         ax[2].plot(sig.ws, sigmas_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
         for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
 
+    # Plot im_sig_xy
+    ax[2].plot(sig.ws, np.real((sig.results['A_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean()))*np.pi - sig.results['re_sig_xx'][bs])    #### THIS IS 0
+    print(als[al_idx], al_idx)
+    print(sig.results['A_sum'][bs]-sig.results['As_sum'][bs][al_idx])
+    
         # if i == 1:
         #     print(sigmas_al[al_idx]-sig.results['im_sig_xy'][bs])
 

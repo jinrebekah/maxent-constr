@@ -54,17 +54,19 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    tol=1e-7
-    al, As, chi2s = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
+    tol=1e-8
+    al, As, chi2s, al_idx = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
 
     # ---------- Calculate A with optimal al ----------
-    if opt_method == 'Bryan':
-        A, _ = find_A_Bryan(Gavgp, Kp, m, W, al, inspect=inspect_opt)   #### issue with u_init here, come back to it
-    elif opt_method == 'cvxpy':
-        A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt, tol=tol)
-    else:
-        raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
+    # if opt_method == 'Bryan':
+    #     A, u_init = find_A_Bryan(Gavgp, Kp, m, W, als[al_idx-1], inspect=inspect_opt)   #### issue with u_init here, come back to it
+    #     #### this gives me a different answer than in As when selecting al, might be because of u_init
+    # elif opt_method == 'cvxpy':
+    #     A = find_A_cvxpy(Gavgp, Kp, m, W, al, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect=inspect_opt, tol=tol)
+    # else:
+    #     raise ValueError(f"Invalid opt_method: '{opt_method}'. Expected 'Bryan' or 'cvxpy'.")
 
+    A = As[al_idx]
     return A, al, As, chi2s
     
 def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False, tol=1e-8):
@@ -201,7 +203,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
         plt.show()
-    return al, As, chi2s
+    return al, As, chi2s, al_idx
 
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
