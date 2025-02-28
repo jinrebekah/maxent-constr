@@ -282,7 +282,7 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     fig, ax = plt.subplots(ncols=num_plots, figsize=(plot_size[0]*num_plots, plot_size[1]), layout='constrained')
 
     if num_plots==1:
-        sig.plot_sigma(sig, ax, sig_names[0], bs_idx, bs_mode=bs_mode)
+        plot_sigma(sig, ax, sig_names[0], bs_idx, bs_mode=bs_mode)
     else:
         for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
     
@@ -381,7 +381,7 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
 
     # Color plot
     lim = max(np.nanmin(sigmas_al), np.nanmax(sigmas_al))
-    print(lim)
+    # print(lim)
     from matplotlib.colors import TwoSlopeNorm
     norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
     X, Y = np.meshgrid(als, sig.ws)
@@ -407,8 +407,8 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
         ax[2].plot(sig.ws, sigmas_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
         for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
 
-        if i == 1:
-            print(sigmas_al[al_idx]-sig.results['im_sig_xy'][bs])
+        # if i == 1:
+        #     print(sigmas_al[al_idx]-sig.results['im_sig_xy'][bs])
 
     ax[2].set_xlabel(r'$\omega$')
     ax[2].set_ylabel(sig_label)
