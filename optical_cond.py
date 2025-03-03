@@ -12,7 +12,7 @@ if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
 else:
     sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
-# import jqjq
+import jqjq
 
 from tqdm import tqdm
 import math
@@ -40,8 +40,8 @@ class sigma:
         self.bs = bs
         self.sigma_type = sigma_type
 
-        self.jj, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
-        self.jjq0, self.chi_xx, self.chi_xy = self._prep_jjq0()
+        self.jjq0, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
+        self.chi_xx, self.chi_xy = self._prep_chi()
 
         # Set solver settings (stupid)
         settings_xx_default = {
@@ -77,36 +77,35 @@ class sigma:
     def _load_data(self, path):
         """Loads j-j data."""
         # Load in all measurements
-        n_samples, sign, jj = util.load(
-            path, "meas_uneqlt/n_sample", "meas_uneqlt/sign", "meas_uneqlt/jj"
+        n_samples, sign = util.load(
+            path, "meas_uneqlt/n_sample", "meas_uneqlt/sign"
         )
+        
         # Only keep measurements from bins where n_sample is max value (i.e., bin is complete)
         n_sample = n_samples.max()
         mask = n_samples == n_sample
-        sign, jj = sign[mask], jj[mask]
+        sign = sign[mask]
         n_bin = mask.sum()
-        # Reshape jj into a 2x2 matrix (or 4x4, for nonzero t') discretized in tau + containing info from bond to bond (indexed by lattice site)
-        jj.shape = -1, self.L, 2, 2, self.Ny, self.Nx
-        # I guess also note that jj does not include tau=beta, remember len(taus) != L
-        return jj/n_sample, sign/n_sample, n_sample, n_bin
 
-    def _prep_jjq0(self):
-        """Gets jjq0 and averaged xx and xy correlators."""
-        # Will probably need to change, this only works for tp=0
-        jjq0 = self.jj.sum((-1, -2))   # sum over all the bonds (since q=0)
+        # Get jjq0 (can do nonzero t')
+        jjq0 = jqjq.get_component(path, 'jj')
+        
+        # I guess also note that jj does not include tau=beta, remember len(taus) != L
+        return jjq0/n_sample, sign/n_sample, n_sample, n_bin
+
+    def _prep_chi(self):
+        """Gets averaged chi_xx and chi_xy correlators."""
+        jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(self.path, self.jjq0) # already divided by n_sample
+        
         # Get average longitudinal jj
-        jxjxq0 = -jjq0[..., 0, 0]
-        jyjyq0 = -jjq0[..., 1, 1]
-        chi_xx = 0.5 * (jxjxq0 + jyjyq0) # average over xx and yy to get avg longitudinal j-j
+        chi_xx = 0.5 * (-jj_xx - jj_yy) # average over xx and yy to get avg longitudinal j-j
         chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
         chi_xx = np.real(chi_xx) # added for nflux != 0 data, should be purely real
         # Get average transverse jj
-        jxjyq0 = jjq0[..., 1, 0]
-        jyjxq0 = -jjq0[..., 0, 1]
-        chi_xy = 0.5*(jxjyq0+jyjxq0)
+        chi_xy = 0.5*(-jj_xy+jj_yx)
         chi_xy = np.concatenate((np.expand_dims(chi_xy[:, 0], axis=1), 0.5*(chi_xy[:, 1:] - chi_xy[:, :0:-1])), axis=1) # stupid but antisymmetrize bin by bin
         chi_xy = 1j*np.imag(chi_xy) # added for nflux != 0 data, should be purely imaginary
-        return jjq0, chi_xx, chi_xy
+        return chi_xx, chi_xy
     
     def _get_settings_vals(self, settings):
         """Kinda dumb but this generates a dict with values corresponding to settings dict."""
@@ -193,7 +192,6 @@ class sigma:
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
             A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
-            print("Does A_sum=A_xx", np.all(A_sum==A_xx))
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
