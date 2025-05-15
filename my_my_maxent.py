@@ -54,7 +54,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     Gavgp = np.dot(Uc, Gavg)
     
     # ---------- Select optimal al ----------
-    tol=1e-8
+    tol=1e-7
     al, As, chi2s, al_idx = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
 
     # ---------- Calculate A with optimal al ----------

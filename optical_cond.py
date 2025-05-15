@@ -255,11 +255,11 @@ def calc_rho_xx_0(sig):
     nflux = util.load_firstfile(sig.path, "metadata/nflux")[0]
     sig_xx_0_bs = np.array([scipy.interpolate.CubicSpline(sig.ws, re_sig_xx)(0) for re_sig_xx in re_sig_xx_bs]) # DC xx conductivity for each bootstrap
     # Also modified bc the sig_xy data for nflux=0 is false signal and can't be trusted
-    sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
-    # if nflux==0:
-    #     sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
-    # else:
-    #     sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs]) # xy
+    # sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
+    if nflux==0:
+        sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
+    else:
+        sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs]) # xy
     # print("Avg. DC sig_xx: ", sig_xx_0_bs)
     # print("Avg. DC sig_xy: ", sig_xy_0_bs)
     
@@ -457,6 +457,8 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
     # plt.tight_layout()
     plt.show()
 
+
+
 def inspect_symm(sig, bs=0):
     # uh plot symmetry residuals of optimal solution for now
     
@@ -467,6 +469,11 @@ def inspect_symm(sig, bs=0):
     fig, ax = plt.subplots()
     ax.scatter(sig.ws[sig.N//2:], resids)
 
+def get_path(dir, U, beta):
+    # Find path with given U and beta in dir (dir should have nflux and n I guess)
+    for subdir in os.listdir(dir):
+        if (f'U{U}_' in subdir) and (f'beta{beta:g}_' in subdir):
+            return dir+subdir+'/'
 
 def find_nearest(array, value, get_idx = False):
     diff_arr = array - value
