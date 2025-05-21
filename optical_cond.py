@@ -19,6 +19,7 @@ import math
 import pandas as pd
 import seaborn as sns
 import pickle
+import re
 
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
@@ -33,6 +34,10 @@ class sigma:
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
+        # get n from path
+        match = re.search(r'/n([+-]?\d*\.?\d+)/', path)
+        if match:
+            self.n = float(match.group(1))
 
         self.ws = ws
         self.dws = dws
@@ -243,6 +248,7 @@ class sigma:
             chi_xy = np.append(chi_xy, -chi_xy[0])
             KA = np.append(KA, -KA[0])
         return KA, chi_xy
+        
 
 ############################ Calculate stuff ################################
 def calc_rho_xx_0(sig):
@@ -419,6 +425,7 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
     plt.show()
 
 def compare_chi_tau(sigs, mode='xx', bs=0):
+    """Plots asdf."""
     # Verify that sig1 and sig2 have the same data
     sig1 = sigs[0]
     taus = sig1.taus
@@ -457,8 +464,6 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
     # plt.tight_layout()
     plt.show()
 
-
-
 def inspect_symm(sig, bs=0):
     # uh plot symmetry residuals of optimal solution for now
     
@@ -468,6 +473,55 @@ def inspect_symm(sig, bs=0):
     
     fig, ax = plt.subplots()
     ax.scatter(sig.ws[sig.N//2:], resids)
+
+def plot_chi_tau(sig, avg=True):
+    """Plots chi_xx and chi_xy (after symmetrizing in tau). Set avg=False to see all bins plotted."""
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    
+    if avg:
+        chi_xx = np.mean(sig.chi_xx, axis=0)
+        chi_xy = np.mean(sig.chi_xy, axis=0)
+    else:
+        chi_xx = sig.chi_xx
+        chi_xy = sig.chi_xy
+    taus = sig.taus[:-1]
+
+    fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
+    if avg:
+        chi_xx = np.mean(sig.chi_xx, axis=0)
+        chi_xy = np.mean(sig.chi_xy, axis=0)
+        
+        ax[0].plot(taus, chi_xx)
+        ax[1].plot(taus, np.real(-1j*chi_xy))
+    else:
+        for chi_xx, chi_xy in zip(sig.chi_xx, sig.chi_xy):
+            ax[0].plot(taus, chi_xx, color = color_cycle[0])
+            ax[1].plot(taus, np.real(-1j*chi_xy), color=color_cycle[0])
+
+    ax[0].set_ylabel(r'$\chi_{xx}(\tau)$')
+    ax[0].set_xlabel(r'$\tau$')
+    ax[1].set_ylabel(r'$-i\chi_{xy}(\tau)$')
+    ax[1].set_xlabel(r'$\tau$')
+    fig.suptitle(rf'U={sig.U}, $\beta$={sig.beta}, n={sig.n}, nflux={sig.nflux}')
+    
+    plt.tight_layout()
+
+def get_bs_outliers(sig, mode='xx'):
+    """Find bs indices which differ the most from the mean."""
+    if mode=='xx':
+        sigma_name='re_sig_xx'
+    else:
+        sigma_name='re_sig_xy'
+        
+    sig_bs = np.array(sig.results[sigma_name].tolist())
+    sig_mean = np.mean(sig_bs, axis=0)
+    errs = np.linalg.norm(sig_bs - sig_mean, axis=1)
+    
+    sorted_indices = np.argsort(errs)[::-1]
+    print(sorted_indices)
+    
+
+############################ Other random helper funcs ################################
 
 def get_path(dir, U, beta):
     # Find path with given U and beta in dir (dir should have nflux and n I guess)
