@@ -218,11 +218,16 @@ class sigma:
         # Print summary of settings used in opt
         pass
 
-    def get_chi_xx(self, include_beta=True):
-        '''Reproduces G_xx(tau)'''
-        A_xx = (self.results['A_xx']*self.results['norm_xx']).mean()
-
-        chi_xx = np.mean(self.chi_xx, axis=0)
+    def get_chi_xx(self, bs=None, include_beta=True):
+        '''Reproduces G_xx(tau) for specified bootstrap. If no bootstrap, just compares means'''
+        if bs is None:
+            A_xx = (self.results['A_xx']*self.results['norm_xx']).mean()
+            chi_xx = np.mean(self.chi_xx, axis=0)
+        else:
+            resample = self.results['resample'][bs]
+            A_xx = self.results['A_xx'][bs]*self.results['norm_xx'][bs]
+            chi_xx = np.mean(self.chi_xx[resample], axis=0)
+            
         if self.settings_xx['krnl']=='symm':
             # A_xx full length, but krnl is not 
             KA = self.input_xx['K']@A_xx[self.N//2:]   # only for the first half of taus
@@ -236,19 +241,24 @@ class sigma:
         
         return KA, chi_xx
     
-    def get_chi_xy(self, include_beta=True):
+    def get_chi_xy(self, bs=None, include_beta=True):
         '''Reproduces G_xy(tau)'''
         # Get from df
         # If bs, just average A_xy*norm for all bs
-        A_xy = (self.results['A_xy']*self.results['norm_sum']).mean()
-
+        if bs is None:
+            A_xy = (self.results['A_xy']*self.results['norm_sum']).mean()
+            chi_xy = np.mean(self.chi_xy, axis=0)
+        else:
+            resample = self.results['resample'][bs]
+            A_xy = self.results['A_xy'][bs]*self.results['norm_sum'][bs]
+            chi_xy = np.mean(self.chi_xy[resample], axis=0)
+        
         KA = self.input_xy['K']@A_xy
-        chi_xy = np.mean(self.chi_xy, axis=0)
+        
         if include_beta:    
             chi_xy = np.append(chi_xy, -chi_xy[0])
             KA = np.append(KA, -KA[0])
         return KA, chi_xy
-        
 
 ############################ Calculate stuff ################################
 def calc_rho_xx_0(sig):
@@ -463,6 +473,29 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
     fig.suptitle(rf'U = {U}, $\beta$ = {beta}, bs = {bs}')
     # plt.tight_layout()
     plt.show()
+
+def check_KA(sig, mode='xx', bs=None):
+    """Plot G(tau) and KA with residuals."""
+    # basically rn this is a version of compare_chi_tau that just checks it for specific bs, probably needs to be merged with it at some point
+    taus = sig.taus
+    if mode=='xx':
+        KA, chi = sig.get_chi_xx(bs=bs)
+        chi_label = r'$\chi_{xx}(\tau)$'
+    else:
+        KA, chi = sig.get_chi_xy(bs=bs)
+        chi = np.real(-1j*chi)
+        chi_label = r'$-i\chi_{xy}(\tau)$'
+    resids = KA-chi
+    
+    plot_size = plt.rcParams['figure.figsize']
+    fig, ax = plt.subplots(ncols=2, figsize=(plot_size[0]*2, plot_size[1]*1.2), layout='constrained')
+    ax[0].plot(taus, chi, label=chi_label)
+    ax[0].plot(taus, KA, label='KA')
+    ax[0].set_title('Data')
+    ax[0].legend()
+    
+    ax[1].scatter(taus, resids, s=7)
+    ax[1].set_title('Residuals')
 
 def inspect_symm(sig, bs=0):
     # uh plot symmetry residuals of optimal solution for now
