@@ -155,7 +155,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     ### modified BT alpha selection method to use lowest alpha curvature peak (for both constrained/smooth and unconstrained)
     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
     k_range = max(k)-min(k)
-    result = scipy.signal.find_peaks(k, prominence=k_range/5)
+    result = scipy.signal.find_peaks(k, prominence=k_range/15, width=5)
     peaks = result[0]
     al_idx = peaks[-1]
     al = als[al_idx]
@@ -184,7 +184,7 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
         # if smooth:
         ax[1].scatter(als[peaks], k[peaks], s=5)
-        ax[1].scatter(als[i], k[i], color='g', s=5)
+        ax[1].scatter(als[al_idx], k[al_idx], color='g', s=5)
 
         # Plot constraint residuals
         # if smooth:
