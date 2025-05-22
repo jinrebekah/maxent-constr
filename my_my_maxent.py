@@ -147,16 +147,21 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     order = valid_als.argsort()
     if smooth:
         # Smooth modified BT, currently for use with constrained xy data
-        # Originally more modified version but I decided max curvature was fine/better
         fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
     else:
         # Default BT
-        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order])) 
+        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
+
+    ### modified BT alpha selection method to use lowest alpha curvature peak (for both constrained/smooth and unconstrained)
     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    al_idx = k.argmax()
+    k_range = max(k)-min(k)
+    result = scipy.signal.find_peaks(k, prominence=k_range/5)
+    peaks = result[0]
+    al_idx = peaks[-1]
     al = als[al_idx]
 
     ### Optional plots for debugging
+    print(inspect_al, 'about to plot')
     if inspect_al:
         # Report how many failed to solve
         print(f"Als failed to solve: {np.isnan(chi2s).sum()}/{len(als)}")
@@ -178,16 +183,16 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         # ax[1].plot(als, fit(np.log(als), 2)) # Plot 2nd derivative directly
         # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
         # if smooth:
-        #     ax[1].scatter(als[peaks], k[peaks], s=5)
-        #     ax[1].scatter(als[i], k[i], color='g', s=5)
+        ax[1].scatter(als[peaks], k[peaks], s=5)
+        ax[1].scatter(als[i], k[i], color='g', s=5)
 
         # Plot constraint residuals
-        if smooth:
-            fig, ax = plt.subplots()
-            resids = [np.abs(constr_matrix@A-constr_vec) for A in As]   # each resid is vec length N/2
-            resids_max = [max(resid) for resid in resids]
-            ax.scatter(als, resids_max)
-            ax.set_xscale('log')
+        # if smooth:
+        #     fig, ax = plt.subplots()
+        #     resids = [np.abs(constr_matrix@A-constr_vec) for A in As]   # each resid is vec length N/2
+        #     resids_max = [max(resid) for resid in resids]
+        #     ax.scatter(als, resids_max)
+        #     ax.set_xscale('log')
         
         # Plot Q, S, and chi2.
         xlim=(0, 10**6)
