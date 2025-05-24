@@ -150,12 +150,14 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
     else:
         # Default BT
-        fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
+        # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
+        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=1)
 
     ### modified BT alpha selection method to use lowest alpha curvature peak (for both constrained/smooth and unconstrained)
     k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+    # k = fit(np.log(als), 2)
     k_range = max(k)-min(k)
-    result = scipy.signal.find_peaks(k, prominence=k_range/15, width=5)
+    result = scipy.signal.find_peaks(k, prominence=k_range/15, width=4, height=max(k)/2)
     peaks = result[0]
     al_idx = peaks[-1]
     al = als[al_idx]
