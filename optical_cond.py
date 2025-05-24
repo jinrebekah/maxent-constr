@@ -143,12 +143,13 @@ class sigma:
     
     def _calc_sigma_xx_bins(self, resample, inspect_al=False):
         """Calculates sigma_xx for bin indices specified by resample."""
+        
         f = self.chi_xx[resample].mean(0)
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx) # No factor of 2 here
+            A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
