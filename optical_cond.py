@@ -35,6 +35,7 @@ class sigma:
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
         # get n from path
+        
         match = re.search(r'/n([+-]?\d*\.?\d+)/', path)
         if match:
             self.n = float(match.group(1))
@@ -306,7 +307,7 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     else:
         for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
     
-    fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     # plt.tight_layout()
     plt.show()
 
@@ -557,11 +558,22 @@ def get_bs_outliers(sig, mode='xx'):
 
 ############################ Other random helper funcs ################################
 
-def get_path(dir, U, beta):
-    # Find path with given U and beta in dir (dir should have nflux and n I guess)
-    for subdir in os.listdir(dir):
-        if (f'U{U}_' in subdir) and (f'beta{beta:g}_' in subdir):
-            return dir+subdir+'/'
+def find_data_folder(dir, nflux, n, U, beta):
+    """Find data dir with given params in dir (e.g. 8x8_tp0)"""
+    for path, dirnames, filenames in os.walk(dir):
+        pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
+        # print(path, dirnames, filenames)
+        match = re.search(pattern, path)
+        
+        if match:
+            nflux_match = int(match.group(1))
+            n_match = float(match.group(2))
+            beta_match = float(match.group(3))
+            U_match = int(match.group(4))
+            if nflux==nflux_match and n==n_match and beta==beta_match and U==U_match:
+                return path + '/'
+        else:
+            continue
 
 def find_nearest(array, value, get_idx = False):
     diff_arr = array - value
