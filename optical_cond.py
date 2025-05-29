@@ -30,15 +30,17 @@ class sigma:
         # Store simulation parameters
         self.path = path
         self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
+            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'", "metadata/nflux"
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
         # get n from path
         
-        match = re.search(r'/n([+-]?\d*\.?\d+)/', path)
+        pattern = r"nflux(\d+)/n([\d.]+)"
+        match = re.search(pattern, path)
         if match:
-            self.n = float(match.group(1))
+            self.nflux = int(match.group(1))
+            self.n = float(match.group(2))
 
         self.ws = ws
         self.dws = dws
