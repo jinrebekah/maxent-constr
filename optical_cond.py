@@ -29,8 +29,8 @@ class sigma:
     # def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}, pickle_file=None):
         # Store simulation parameters
         self.path = path
-        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp, self.nflux = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'", "metadata/nflux"
+        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
+            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
@@ -307,7 +307,10 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     else:
         for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
     
-    fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    try:
+        fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    except:
+        fig.suptitle(rf'n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     # plt.tight_layout()
     plt.show()
 
@@ -554,7 +557,26 @@ def get_bs_outliers(sig, mode='xx'):
     
     sorted_indices = np.argsort(errs)[::-1]
     print(sorted_indices)
-    
+
+
+############################ Loading pickle funcs ################################
+
+def get_sig_pickle(folder_name=None, U=None, beta=None, pickle_path=None):
+    # folder_name directs to pickle output folder with U, beta files in it (specify nflux and n in path)
+    if pickle_path is None:
+        for file in os.listdir(folder_name):
+            if (f'U{U}_' in file) and (f'beta{beta:g}_' in file):
+                # print(folder_name+file)
+                pickle_path = folder_name + file
+                break
+        # If matching pickle file not found in folder_name
+        if pickle_path is None:
+            raise FileNotFoundError(f"No file found for U={U} and beta={beta} in {folder_name}")
+        
+    # Load sig
+    with open(pickle_path, 'rb') as file:
+        sig = pickle.load(file)
+    return sig
 
 ############################ Other random helper funcs ################################
 
