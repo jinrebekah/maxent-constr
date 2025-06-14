@@ -30,7 +30,7 @@ class sigma:
         # Store simulation parameters
         self.path = path
         self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'", "metadata/nflux"
+            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
@@ -272,7 +272,8 @@ def calc_rho_xx_0(sig):
     re_sig_xx_bs = np.array(sig.results['re_sig_xx'].tolist())
     re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
 
-    nflux = util.load_firstfile(sig.path, "metadata/nflux")[0]
+    nflux = sig.nflux
+
     sig_xx_0_bs = np.array([scipy.interpolate.CubicSpline(sig.ws, re_sig_xx)(0) for re_sig_xx in re_sig_xx_bs]) # DC xx conductivity for each bootstrap
     # Also modified bc the sig_xy data for nflux=0 is false signal and can't be trusted
     # sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
@@ -312,7 +313,7 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     try:
         fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     except:
-        fig.suptitle(rf'n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+        fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     # plt.tight_layout()
     plt.show()
 
