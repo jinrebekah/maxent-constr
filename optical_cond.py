@@ -25,8 +25,7 @@ from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
 class sigma:
-    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}):
-    # def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}, pickle_file=None):
+    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}, enable_inspect_al=False):
         # Store simulation parameters
         self.path = path
         self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
@@ -70,6 +69,10 @@ class sigma:
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
+
+        # stupid name but enable_inspect_al basically just toggles saving As_xx, As_sum, chi2s_sum, chi2s_xx in the sigma.results df, which takes up a huge amount of space in the pickle
+        # and rn inspect_al is the only function that uses these
+        self.enable_inspect_al = enable_inspect_al
 
         # Initialize sigma results storage df
         results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
@@ -170,7 +173,7 @@ class sigma:
                 A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
         # re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx, 'chi2s_xx': chi2s_xx}
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx} if self.enable_inspect_al else {})} # leave off As_xx and chi2s_xx by default
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -215,7 +218,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, 'chi2s_sum': chi2s_sum, **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_xx': As_sum, 'chi2s_xx': chi2s_sum} if self.enable_inspect_al else {}), **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
