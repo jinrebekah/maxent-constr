@@ -25,20 +25,21 @@ from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
 class sigma:
-    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}):
-    # def __init__(self, path, sigma_type, ws, dws, bs=0, settings_xx = {}, settings_xy={}, pickle_file=None):
+    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}, enable_inspect_al=False):
         # Store simulation parameters
         self.path = path
-        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp, self.nflux = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'", "metadata/nflux"
+        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
+            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
         )
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
         # get n from path
         
-        match = re.search(r'/n([+-]?\d*\.?\d+)/', path)
+        pattern = r"nflux(\d+)/n([\d.]+)"
+        match = re.search(pattern, path)
         if match:
-            self.n = float(match.group(1))
+            self.nflux = int(match.group(1))
+            self.n = float(match.group(2))
 
         self.ws = ws
         self.dws = dws
@@ -68,6 +69,10 @@ class sigma:
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
+
+        # stupid name but enable_inspect_al basically just toggles saving As_xx, As_sum, chi2s_sum, chi2s_xx in the sigma.results df, which takes up a huge amount of space in the pickle
+        # and rn inspect_al is the only function that uses these
+        self.enable_inspect_al = enable_inspect_al
 
         # Initialize sigma results storage df
         results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
@@ -168,7 +173,7 @@ class sigma:
                 A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
         # re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, 'As_xx': As_xx, 'chi2s_xx': chi2s_xx}
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx} if self.enable_inspect_al else {})} # leave off As_xx and chi2s_xx by default
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -213,7 +218,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, 'As_sum': As_sum, 'chi2s_sum': chi2s_sum, **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_xx': As_sum, 'chi2s_xx': chi2s_sum} if self.enable_inspect_al else {}), **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
@@ -270,7 +275,8 @@ def calc_rho_xx_0(sig):
     re_sig_xx_bs = np.array(sig.results['re_sig_xx'].tolist())
     re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
 
-    nflux = util.load_firstfile(sig.path, "metadata/nflux")[0]
+    nflux = sig.nflux
+
     sig_xx_0_bs = np.array([scipy.interpolate.CubicSpline(sig.ws, re_sig_xx)(0) for re_sig_xx in re_sig_xx_bs]) # DC xx conductivity for each bootstrap
     # Also modified bc the sig_xy data for nflux=0 is false signal and can't be trusted
     # sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
@@ -307,7 +313,10 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     else:
         for i in range(num_plots): plot_sigma(sig, ax[i], sig_names[i], bs_idx=bs_idx, bs_mode=bs_mode)
     
-    fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    try:
+        fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    except:
+        fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     # plt.tight_layout()
     plt.show()
 
@@ -554,7 +563,26 @@ def get_bs_outliers(sig, mode='xx'):
     
     sorted_indices = np.argsort(errs)[::-1]
     print(sorted_indices)
-    
+
+
+############################ Loading pickle funcs ################################
+
+def get_sig_pickle(folder_name=None, U=None, beta=None, pickle_path=None):
+    # folder_name directs to pickle output folder with U, beta files in it (specify nflux and n in path)
+    if pickle_path is None:
+        for file in os.listdir(folder_name):
+            if (f'U{U}_' in file) and (f'beta{beta:g}_' in file):
+                # print(folder_name+file)
+                pickle_path = folder_name + file
+                break
+        # If matching pickle file not found in folder_name
+        if pickle_path is None:
+            raise FileNotFoundError(f"No file found for U={U} and beta={beta} in {folder_name}")
+        
+    # Load sig
+    with open(pickle_path, 'rb') as file:
+        sig = pickle.load(file)
+    return sig
 
 ############################ Other random helper funcs ################################
 
