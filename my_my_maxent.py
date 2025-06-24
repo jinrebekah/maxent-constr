@@ -157,7 +157,6 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
     al = als[al_idx]
 
     ### Optional plots for debugging
-    print(inspect_al, 'about to plot')
     if inspect_al:
         # Report how many failed to solve
         print(f"Als failed to solve: {np.isnan(chi2s).sum()}/{len(als)}")
