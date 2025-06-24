@@ -364,9 +364,10 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
+def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
+    
     resample = sig.results['resample'][bs]
     
     if sig.settings_xx['krnl'] == 'symm':
@@ -400,6 +401,8 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=[]):
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
         als = sig.input_xy['als']
 
+    if als_plot==None:
+        als_plot=[]
     als_plot.append(optimal_al) # always plot optimal al
 
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
