@@ -21,6 +21,8 @@ import seaborn as sns
 import pickle
 import re
 
+from pathlib import Path
+
 from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
@@ -121,7 +123,11 @@ class sigma:
     def _get_settings_vals(self, settings):
         """Kinda dumb but this generates a dict with values corresponding to settings dict."""
         # Returns input dict, which are parameters directly passed to MaxEnt
-        mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
+        # mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
+        if isinstance(settings['mdl'], str) and settings['mdl'] == 'flat':
+            mdl = maxent.model_flat(self.dws)
+        else:
+            mdl = settings['mdl']
         if 'krnl' in settings and settings['krnl'] == 'symm':
             krnl = maxent.kernel_b(self.beta, self.taus[0 : self.L // 2 + 1], self.ws[self.N//2:], sym=True)
             mdl = mdl[self.N//2:]
@@ -218,7 +224,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_xx': As_sum, 'chi2s_xx': chi2s_sum} if self.enable_inspect_al else {}), **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_sum': As_sum, 'chi2s_sum': chi2s_sum} if self.enable_inspect_al else {}), **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
@@ -284,15 +290,39 @@ def calc_rho_xx_0(sig):
         sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
     else:
         sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs]) # xy
-    # print("Avg. DC sig_xx: ", sig_xx_0_bs)
-    # print("Avg. DC sig_xy: ", sig_xy_0_bs)
     
     rho_xx_0_bs = sig_xx_0_bs/(sig_xx_0_bs**2 + sig_xy_0_bs**2)
     # print(rho_xx_0_bs, np.shape(rho_xx_0_bs))
     rho_xx_0 = np.mean(rho_xx_0_bs)
-    err = np.std(rho_xx_0_bs)
-    return rho_xx_0, err
+    rho_xx_err = np.std(rho_xx_0_bs)
+    sig_xx_0 = np.mean(sig_xx_0_bs)
+    sig_xx_err = np.std(sig_xx_0_bs)
+    sig_xy_0 = np.mean(sig_xy_0_bs)
+    sig_xy_err = np.std(sig_xy_0_bs)
+    return rho_xx_0, rho_xx_err, sig_xx_0, sig_xx_err, sig_xy_0, sig_xy_err
 
+def calc_rho_proxy(sig, bs=200):
+    # jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(sig.path, sig.jjq0) # already divided by n_sample
+    # colors = sns.color_palette('husl', 2)
+    # for bin in range(sig.n_bin):
+    #     plt.scatter(sig.taus[:-1], sig.chi_xx[bin], color=colors[0])
+    # dt = sig.beta/sig.L
+    proxy1_list = []
+    proxy2_list = []
+    for i in range(bs):
+        resample = np.random.randint(0, sig.n_bin, sig.n_bin)
+        # calculate proxy
+        chi_fit =  CubicSpline(sig.taus[:-1], np.mean(sig.chi_xx[resample], axis=0))
+        chi_half_beta = chi_fit(sig.beta/2)
+        dchi_half_beta = chi_fit.derivative(2)(sig.beta/2)
+        # print(chi_half_beta)
+        proxy1_list.append(np.pi/(sig.beta**2*chi_half_beta))
+        proxy2_list.append(dchi_half_beta/(2*np.pi*chi_half_beta**2))
+    proxy1 = np.mean(proxy1_list)
+    proxy1_err = np.std(proxy1_list)
+    proxy2 = np.mean(proxy2_list)
+    proxy2_err = np.std(proxy2_list)
+    return proxy1, proxy1_err, proxy2, proxy2_err
 
 ############################ Various badly written plotting and debugging funcs ################################
 
@@ -570,17 +600,21 @@ def get_bs_outliers(sig, mode='xx'):
 
 ############################ Loading pickle funcs ################################
 
-def get_sig_pickle(folder_name=None, U=None, beta=None, pickle_path=None):
-    # folder_name directs to pickle output folder with U, beta files in it (specify nflux and n in path)
+def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None):
+    # path is either directly to pickle or to folder containing all pickles ('8x8_tp0')
+    pickle_path=None
+    if path.endswith('.pickle'):
+        pickle_path = path
+    else:
+        pattern = rf"nflux{nflux}/n{n}/beta{beta}_U{U}"
+        # pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
+        for file in Path(path).rglob('*.pickle'):
+            if pattern in str(file):
+                print(file)
+                pickle_path = file
+                
     if pickle_path is None:
-        for file in os.listdir(folder_name):
-            if (f'U{U}_' in file) and (f'beta{beta:g}_' in file):
-                # print(folder_name+file)
-                pickle_path = folder_name + file
-                break
-        # If matching pickle file not found in folder_name
-        if pickle_path is None:
-            raise FileNotFoundError(f"No file found for U={U} and beta={beta} in {folder_name}")
+        raise FileNotFoundError(f"No pickle found for nflux={nflux}, n={n}, U={U}, beta={beta} in {path}")
         
     # Load sig
     with open(pickle_path, 'rb') as file:
