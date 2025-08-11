@@ -350,7 +350,7 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar'):
     # plt.tight_layout()
     plt.show()
 
-def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
+def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5DA5', label='', show_opt_info=True):
     sigma_name_dict = {
         "re_sig_xx": r'Re[$\sigma_{xx}(\omega)$]', 
         # "im_sig_xx": r'Im[$\sigma_{xx}(\omega)$]',
@@ -373,28 +373,30 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar'):
             bs_mode = 'all'   # no such thing as std for 1 bs, use 'all' mode
         if bs_mode=='errorbar':
             # Plot bootstrap mean with std error bars
-            ax.errorbar(ws, np.mean(sig_bs, axis=0), yerr=np.std(sig_bs, axis=0), fmt='s-', lw=0.7, ms=0, capsize=0, ecolor='orange', elinewidth=0.5)
+            markers, caps, bars = ax.errorbar(ws, np.mean(sig_bs, axis=0), yerr=np.std(sig_bs, axis=0), fmt='s-', lw=0.7, ms=0, capsize=0, color=color, ecolor='orange', elinewidth=0.5, label=label)
+            # [bar.set_alpha(0.0001) for bar in bars]
         else:
             # Plot all bootstraps on top of each other
             for i in range(len(sig_bs)):
-                ax.plot(ws, sig_bs[i], lw=1, color='#0C5DA5', alpha=0.9)
+                ax.plot(ws, sig_bs[i], lw=0.7, color=color, alpha=0.9, label=label if i==0 else None)
     else:
         # Plot all bins result
-        ax.plot(ws, sig.results[sigma_name][0])
+        ax.plot(ws, sig.results[sigma_name][0], color=color)
 
     # Annotate with opt info in top left corner I guess
-    settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
-    method = settings['opt_method']
-    K = sig.settings_xx['krnl']
-    al_method = 'smooth' if settings['smooth_al'] else 'default'
-    ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
-    # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
+    if show_opt_info:
+        settings = sig.settings_xx if 'xx' in sigma_name else sig.settings_xy
+        method = settings['opt_method']
+        K = sig.settings_xx['krnl']
+        al_method = 'smooth' if settings['smooth_al'] else 'default'
+        ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
+        # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
     ax.set_xlabel(r'$\omega$')
     ax.set_ylabel(sigma_name_dict[sigma_name])
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None):
+def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None, w_lim=None):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
     
@@ -431,9 +433,11 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None):
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
         als = sig.input_xy['als']
 
-    if als_plot==None:
+    if np.any(als_plot)==None:
         als_plot=[]
-    als_plot.append(optimal_al) # always plot optimal al
+    als_plot = np.array(als_plot)
+    als_plot = np.append(als_plot, optimal_al)
+    # als_plot.append(optimal_al) # always plot optimal al
 
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
     fig, ax = plt.subplots(figsize = (default_figsize[0]*3, default_figsize[1]), ncols=3, layout='constrained')
@@ -473,7 +477,10 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None):
 
     ax[2].set_xlabel(r'$\omega$')
     ax[2].set_ylabel(sig_label)
-    ax[2].set_xlim(-20, 20)
+    if np.any(w_lim):
+        ax[2].set_xlim(*w_lim)
+    else:
+        ax[2].set_xlim(-20, 20)
     ax[2].legend()
 
     plt.show()
@@ -610,7 +617,7 @@ def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None):
         # pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
         for file in Path(path).rglob('*.pickle'):
             if pattern in str(file):
-                print(file)
+                # print(file)
                 pickle_path = file
                 
     if pickle_path is None:

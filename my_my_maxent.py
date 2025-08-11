@@ -17,7 +17,7 @@ import math
 import matplotlib.pyplot as plt
 default_figsize = plt.rcParams['figure.figsize']
 
-def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
+def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smooth_al=False, al_method='BT', als=np.logspace(8, 1, 1+20*(8-1)), inspect_al=False, inspect_opt=False):
     """MaxEnt method to calculate A(w) for G(tau)=K(tau, w)*A(w) by maximizing Q[A(w); al]=al*S-0.5*chi^2.
 
     Args:
@@ -25,10 +25,13 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
         opt_method (str): Optimization method used to maximize Q. Options are:
             - 'Bryan': Bryan's method (only unconstrained).
             - 'cvxpy': Use cvxpy solver (constrained if constr_matrix and constr_vec provided, otherwise unconstrained).
+        al_method (str): al selection method. Options are:
+            - 'classic': 
+            - 'historic':
+            - 'BT'
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraints B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraints B*A=b (Default: None).
         als (array): Array of alpha values used in optimal alpha selection.
-        inspect (bool): Whether to plot/print checks.
     Returns:
         A (array): Spectral function A(w) (1xN).
     """
@@ -55,7 +58,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     
     # ---------- Select optimal al ----------
     tol=1e-7
-    al, As, chi2s, al_idx = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
+    al, As, chi2s, al_idx = select_al(Gavgp, Kp, m, W, als, smooth=smooth_al, opt_method=opt_method, al_method=al_method, constr_matrix=constr_matrix, constr_vec=constr_vec, inspect_al=inspect_al, inspect_opt=inspect_opt, tol=tol)
 
     # ---------- Calculate A with optimal al ----------
     # if opt_method == 'Bryan':
@@ -69,7 +72,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     A = As[al_idx]
     return A, al, As, chi2s
     
-def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False, tol=1e-8):
+def select_al(G, K, m, W, als, opt_method="Bryan", al_method='BT', smooth=False, constr_matrix=None, constr_vec=None, inspect_al=False, inspect_opt=False, tol=1e-8):
     """Selects optimal alpha using BT method. 
     
     BT method calculates chi2 for optimized spectrum A* for every al in als.
@@ -83,6 +86,10 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
         opt_method (str): Optimization method used to maximize Q. Options are:
             - 'Bryan': Bryan's method.
             - 'cvxpy': Convex optimization method.
+        al_method (str): al selection method. Options are:
+            - 'classic': 
+            - 'historic':
+            - 'BT'
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraint B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraint B*A=b (Default: None).
         inspect : asdf
@@ -140,21 +147,30 @@ def select_al(G, K, m, W, als, opt_method="Bryan", smooth=False, constr_matrix=N
                 statuses[i] = 'fail'
             Qs[i], Ss[i], chi2s[i] = Q(As[i], G, K, m, W, al, return_all=True) # nan too if A has nan
 
-    ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
     # Filter out nans
     valid_chi2s = chi2s[~np.isnan(chi2s)]
     valid_als = als[~np.isnan(chi2s)]
-    order = valid_als.argsort()
-    if smooth:
-        # Smooth modified BT, currently for use with constrained xy data
-        fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
+    
+    
+    if al_method == 'historic':
+        pass
+    elif al_method == 'classic':
+        pass
+    elif al_method == 'BT':
+        ### Select optimal alpha based on curvature of log-log plot of chi2 vs. al
+        order = valid_als.argsort()
+        if smooth:
+            # Smooth modified BT, currently for use with noisy constrained xy chi2 data
+            fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
+        else:
+            # Default BT
+            # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
+            fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=1)
+        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        al_idx = k.argmax()
+        al = als[al_idx]
     else:
-        # Default BT
-        # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
-        fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=1)
-    k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
-    al_idx = k.argmax()
-    al = als[al_idx]
+        raise ValueError(f"Unknown al_method '{al_method}'. Must be one of: 'historic', 'classic', 'BT'.")
 
     ### Optional plots for debugging
     if inspect_al:
