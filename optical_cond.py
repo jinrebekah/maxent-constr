@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
+import glob
 
 import my_my_maxent as maxent
 import importlib
@@ -57,6 +58,7 @@ class sigma:
             'mdl': 'flat', 
             'krnl': 'symm', 
             'opt_method': 'Bryan',
+            'al_method': 'BT',
             'inspect_al': False,
             'smooth_al': False
         }
@@ -66,6 +68,7 @@ class sigma:
         settings_xy_default = {
             'mdl': 'flat',
             'opt_method': 'Bryan',
+            'al_method': 'BT',
             'inspect_al': False,
             'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
         }
@@ -136,9 +139,10 @@ class sigma:
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
         opt_method = settings['opt_method']
+        al_method = settings['al_method']
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
         als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-2))
-        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'smooth_al': smooth_al, 'als': als}
+        return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'al_method': al_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
         if self.bs:
@@ -646,20 +650,16 @@ def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None):
 
 def find_data_folder(dir, nflux, n, U, beta):
     """Find data dir with given params in dir (e.g. 8x8_tp0)"""
-    for path, dirnames, filenames in os.walk(dir):
-        pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
-        # print(path, dirnames, filenames)
-        match = re.search(pattern, path)
-        
-        if match:
-            nflux_match = int(match.group(1))
-            n_match = float(match.group(2))
-            beta_match = float(match.group(3))
-            U_match = int(match.group(4))
-            if nflux==nflux_match and n==n_match and beta==beta_match and U==U_match:
-                return path + '/'
-        else:
-            continue
+    search_pattern = os.path.join(
+        dir,
+        f"nflux{nflux}",
+        f"n{n}",
+        f"beta{beta:g}_U{U}_mu*"
+    )
+    matches = glob.glob(search_pattern)
+    if matches:
+        return matches[0] + '/'  # Return the first match
+    return None
 
 def find_nearest(array, value, get_idx = False):
     diff_arr = array - value

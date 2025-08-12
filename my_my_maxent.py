@@ -90,7 +90,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
             As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
             Qs[i], Ss[i], chi2s[i], lnPs[i], dlnPs[i] = Q(As[i], G, K, m, W, al)
-            statuses[i] = 'success'
+            statuses[i] = 'optimal'
     elif opt_method == "cvxpy": 
         # Calling prob.solve on the same problem is faster than calling find_A_cvxpy, calculation moved here
         A = cp.Variable(N, pos=True)
@@ -184,18 +184,26 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
 
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
         # Also plot whether points were 'optimal_inaccurate'
-        fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2/1.2, default_figsize[1]/1.2), layout='constrained')
-        ax[0].loglog(als, np.exp(fit(np.log(als))), color='r', label='f', zorder=-5)
-        ax[0].scatter(als[statuses=='optimal'], chi2s[statuses=='optimal'], s=1.5)
-        ax[0].scatter(als[statuses=='optimal_inaccurate'], chi2s[statuses=='optimal_inaccurate'], s=3)
-        ax[0].set_xlabel(r"$\alpha$")
-        ax[0].set_ylabel(r"$\chi^2$")
-        ax[0].axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
-        ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+        fig, ax = plt.subplots(ncols=1, figsize=(default_figsize[0], default_figsize[1]))
+        # ax.loglog(als, np.exp(fit(np.log(als))), color='r', label='f', zorder=-5)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.scatter(als[statuses=='optimal'], chi2s[statuses=='optimal'], s=1.5)
+        ax.scatter(als[statuses=='optimal_inaccurate'], chi2s[statuses=='optimal_inaccurate'], s=3)
+        ax.set_xlabel(r"$\alpha$")
+        ax.set_ylabel(r"$\chi^2$")
+        ax.axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
+        ax.annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+        ax2 = ax.twinx()
+        ax2.plot(als, np.exp(lnPs), 'g.', ms=3)
+        # ax2.plot([al, al], [0, np.exp(lnPs.max())], 'g', lw=1)
+        ax2.set_ylabel(r"$P(\alpha)$")
 
-        ax[1].plot(als, k)
-        ax[1].set_xscale("log")
-        ax[1].set_ylabel(r"$f''/(1 + f'^2)^{1.5}$")
+        if al_method == 'BT':
+            fig, ax = plt.subplots()
+            ax.plot(als, k)
+            ax.set_xscale("log")
+            ax.set_ylabel(r"$f''/(1 + f'^2)^{1.5}$")
         # ax[1].plot(als, fit(np.log(als), 2)) # Plot 2nd derivative directly
         # ax[1].plot(als, fit(np.log(als), 1)) # Also plot 1st derivative
         # if smooth:
@@ -383,6 +391,7 @@ def Q(A, G, K, m, W, al):
     S = (A - m - scipy.special.xlogy(A, A/m)).sum()
     KAG = K@A - G
     chi2 = np.dot(KAG*KAG, W)
+    Q = al*S - 0.5*chi2
 
     ####### double check wtf this is
     Z = np.sqrt(W[:, None])*K*np.sqrt(A)
@@ -390,7 +399,7 @@ def Q(A, G, K, m, W, al):
     lnP = 0.5*np.log(al/(al + lam)).sum() + Q
     dlnP = np.sum(lam/(al + lam)) / (2*al) + (A - m - scipy.special.xlogy(A, A/m)).sum()
     
-    return al*S - 0.5*chi2, S, chi2, lnP, dlnP
+    return Q, S, chi2, lnP, dlnP
 
 # ================================= various random deubgging funcs  =================================
 def plot_G_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title='', label='', color=plt.rcParams['axes.prop_cycle'].by_key()['color'][0]):
