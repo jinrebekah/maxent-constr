@@ -9,7 +9,7 @@ import os
 if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
     sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
 else:
-    sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
+    sys.path.append('/Users/rebekahjin/Documents/devereaux_group/dqmc-dev/util')
 import util
 
 from scipy.interpolate import CubicSpline
@@ -29,7 +29,8 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
         al_method (str): al selection method. Options are:
             - 'classic': 
             - 'historic':
-            - 'BT'
+            - 'Bryan':
+            - 'BT':
         constr_matrix (array, optional): Constraint matrix B (MxN) for linear constraints B*A=b (Default: None).
         constr_vec (array, optional): Constraint vector b (Mx1) for linear constraints B*A=b (Default: None).
         als (array): Array of alpha values used in optimal alpha selection.
@@ -88,6 +89,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
             # config = {'mu_min': al/4.0, 'mu_max': al*1e100, 'mu_init': al}
             As[i], us[i] = find_A_Bryan(G, K, m, W, al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
             Qs[i], Ss[i], chi2s[i], lnPs[i], dlnPs[i] = Q(As[i], G, K, m, W, al)
+            statuses[i] = 'success'
     elif opt_method == "cvxpy": 
         # Calling prob.solve on the same problem is faster than calling find_A_cvxpy, calculation moved here
         A = cp.Variable(N, pos=True)
@@ -119,7 +121,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     dlnPs = dlnPs[mask]
 
     # ------------------------------ Select optimal al ------------------------------
-    optimal_al = select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, al_method=al_method, inspect_al=inspect_al)
+    optimal_al = select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method=al_method, smooth=smooth_al, inspect_al=inspect_al)
 
     # ------------------------------ Calculate A with optimal al ------------------------------
     if al_method == 'BT':
@@ -137,7 +139,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     
     return A, optimal_al, As, chi2s
     
-def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, al_method='BT', inspect_al=False):
+def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smooth=False, inspect_al=False):
     """Selects optimal alpha. 
 
     Args:
@@ -157,17 +159,17 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, al_method='BT', inspect_al=Fa
         fit = CubicSpline(np.log(als[order]), dlnPs[order])
         roots = fit.roots(extrapolate=False)
         al = np.exp(fit.roots(extrapolate=False)[0])
-        
+    elif al_method == 'Bryan':
+        pass
     elif al_method == 'BT':
         # Select optimal alpha based on curvature of log-log plot of chi2 vs. al
-        
         if smooth:
             # Smooth modified BT, currently for use with noisy constrained xy chi2 data
-            fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=3)
+            fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=3)
         else:
             # Default BT
             # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
-            fit = scipy.interpolate.make_smoothing_spline(np.log(valid_als[order]), np.log(valid_chi2s[order]), lam=1)
+            fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=1)
         k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
         al_idx = k.argmax()
         al = als[al_idx]
@@ -390,10 +392,9 @@ def Q(A, G, K, m, W, al):
     return al*S - 0.5*chi2, S, chi2, lnP, dlnP
 
 # ================================= various random deubgging funcs  =================================
-def plot_chi_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title=''):
+def plot_G_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title='', label='', color=plt.rcParams['axes.prop_cycle'].by_key()['color'][0]):
     """Plots G(tau). Set all_bins=True to see all bins plotted on top of each other."""
     # first index of G is bin
-    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
     taus = taus[:G.shape[1]]
 
     if ax is None:
@@ -401,17 +402,25 @@ def plot_chi_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title=''
 
     if all_bins:
         Gavg = np.mean(G, axis=0)
-        ax.plot(taus, Gavg)
+        ax.plot(taus, Gavg, label=label, color=color)
     else:
-        for G_bin in G:
-            ax.plot(taus, G_bin, color = color_cycle[0])
+        for i, G_bin in enumerate(G):
+            ax.plot(taus, G_bin, color = color, label=label if i==0 else None)
 
     ax.set_ylabel(ylabel)
     ax.set_xlabel(r'$\tau$')
     ax.set_title(title)
 
-def check_chi_tau_gaussian(G, tau=None):
-    pass
+def check_G_tau_gaussian(G, taus, check_tau, ax=None, ylabel='', title='', label='', color=plt.rcParams['axes.prop_cycle'].by_key()['color'][0]):
+    # tau
+    # plot histogram of G(tau=check_tau) to see if it's Gaussian (can't imagine it wouldn't be lmao but worth a check)
+    n_bin = G.shape[0]
+
+    Gs = G[np.where(taus==check_tau)[0][0]]
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(default_figsize[0], default_figsize[1]))
+    ax.hist(Gs)
+    
 
 # ================================= from Edwin's maxent =================================
 

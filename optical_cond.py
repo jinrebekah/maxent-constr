@@ -106,17 +106,19 @@ class sigma:
         # I guess also note that jj does not include tau=beta, remember len(taus) != L
         return jjq0/n_sample, sign/n_sample, n_sample, n_bin
 
-    def _prep_chi(self):
+    def _prep_chi(self, symm=True):
         """Gets averaged chi_xx and chi_xy correlators."""
         jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(self.path, self.jjq0) # already divided by n_sample
         
         # Get average longitudinal jj
         chi_xx = 0.5 * (-jj_xx - jj_yy) # average over xx and yy to get avg longitudinal j-j
-        chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
+        if symm:
+            chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
         chi_xx = np.real(chi_xx) # added for nflux != 0 data, should be purely real
         # Get average transverse jj
         chi_xy = 0.5*(-jj_xy+jj_yx)
-        chi_xy = np.concatenate((np.expand_dims(chi_xy[:, 0], axis=1), 0.5*(chi_xy[:, 1:] - chi_xy[:, :0:-1])), axis=1) # stupid but antisymmetrize bin by bin
+        if symm:
+            chi_xy = np.concatenate((np.expand_dims(chi_xy[:, 0], axis=1), 0.5*(chi_xy[:, 1:] - chi_xy[:, :0:-1])), axis=1) # stupid but antisymmetrize bin by bin
         chi_xy = 1j*np.imag(chi_xy) # added for nflux != 0 data, should be purely imaginary
         return chi_xx, chi_xy
     
@@ -558,37 +560,27 @@ def inspect_symm(sig, bs=0):
     fig, ax = plt.subplots()
     ax.scatter(sig.ws[sig.N//2:], resids)
 
-def plot_chi_tau(sig, avg=True):
-    """Plots chi_xx and chi_xy (after symmetrizing in tau). Set avg=False to see all bins plotted."""
+def plot_chi_tau(sig, symm=True, all_bins=False):
+    """Plots chi_xx and chi_xy."""
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    
-    if avg:
-        chi_xx = np.mean(sig.chi_xx, axis=0)
-        chi_xy = np.mean(sig.chi_xy, axis=0)
-    else:
-        chi_xx = sig.chi_xx
-        chi_xy = sig.chi_xy
-    taus = sig.taus[:-1]
 
+    chi_xx, chi_xy = sig._prep_chi(symm=symm)
     fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
-    if avg:
-        chi_xx = np.mean(sig.chi_xx, axis=0)
-        chi_xy = np.mean(sig.chi_xy, axis=0)
-        
-        ax[0].plot(taus, chi_xx)
-        ax[1].plot(taus, np.real(-1j*chi_xy))
-    else:
-        for chi_xx, chi_xy in zip(sig.chi_xx, sig.chi_xy):
-            ax[0].plot(taus, chi_xx, color = color_cycle[0])
-            ax[1].plot(taus, np.real(-1j*chi_xy), color=color_cycle[0])
-
-    ax[0].set_ylabel(r'$\chi_{xx}(\tau)$')
-    ax[0].set_xlabel(r'$\tau$')
-    ax[1].set_ylabel(r'$-i\chi_{xy}(\tau)$')
-    ax[1].set_xlabel(r'$\tau$')
+    maxent.plot_G_tau(chi_xx, sig.taus, ax=ax[0], all_bins=all_bins, ylabel=r'$\chi_{xx}(\tau)$')
+    maxent.plot_G_tau(np.real(-1j*chi_xy), sig.taus, ax=ax[1], all_bins=all_bins, ylabel=r'$-i\chi_{xy}(\tau)$')
     fig.suptitle(rf'U={sig.U}, $\beta$={sig.beta}, n={sig.n}, nflux={sig.nflux}')
     
     plt.tight_layout()
+
+def check_chi_tau_Gaussian(sig, check_tau=None, symm=True, all_bins=False):
+    """Plots chi_xx and chi_xy at specified tau to see if Gaussian"""
+    chi_xx, chi_xy = sig._prep_chi(symm=symm)
+    if check_tau is None:
+        check_tau = sig.beta/2
+    fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
+    check_tau_str = rf"$\beta \times ${check_tau/sig.beta:.2f}"
+    maxent.check_G_tau_gaussian(chi_xx, sig.taus, check_tau, ax=ax[0], ylabel=rf'$\chi_{{xx}}(\tau = $ {check_tau_str})')
+    maxent.check_G_tau_gaussian(np.real(-1j*chi_xy), sig.taus, check_tau, ax=ax[1], ylabel=rf'$-i\chi_{{xy}}(\tau = {check_tau_str})$')
 
 def get_bs_outliers(sig, mode='xx'):
     """Find bs indices which differ the most from the mean."""
