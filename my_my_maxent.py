@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import cvxpy as cp
 import scipy
 import resource
+import pandas as pd
 
 import sys 
 import os
@@ -411,17 +412,27 @@ def plot_G_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title='', 
     ax.set_xlabel(r'$\tau$')
     ax.set_title(title)
 
-def check_G_tau_gaussian(G, taus, check_tau, ax=None, ylabel='', title='', label='', color=plt.rcParams['axes.prop_cycle'].by_key()['color'][0]):
+def check_G_tau_gaussian(G, taus, check_tau, ax=None, xlabel='', title='', label='', color=plt.rcParams['axes.prop_cycle'].by_key()['color'][0]):
     # tau
     # plot histogram of G(tau=check_tau) to see if it's Gaussian (can't imagine it wouldn't be lmao but worth a check)
+    taus = taus[:G.shape[1]]
     n_bin = G.shape[0]
+    print("Nbin: ", n_bin)
 
-    Gs = G[np.where(taus==check_tau)[0][0]]
+    closest_idx = (np.abs(taus - check_tau)).argmin()
+    Gs = G[:, closest_idx]
+    print(closest_idx)
     if ax is None:
         fig, ax = plt.subplots(figsize=(default_figsize[0], default_figsize[1]))
     ax.hist(Gs)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('Count')
     
-
+    # calculate skew and kurtosis for all imaginary time
+    skews = [scipy.stats.skew(G[:, i]) for i in range(G.shape[1])]
+    kurtosis = [scipy.stats.kurtosis(G[:, i]) for i in range(G.shape[1])]
+    return skews, kurtosis
+    
 # ================================= from Edwin's maxent =================================
 
 def gen_grid(nw, x_min, x_max, w_x):

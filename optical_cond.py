@@ -572,16 +572,38 @@ def plot_chi_tau(sig, symm=True, all_bins=False):
     
     plt.tight_layout()
 
-def check_chi_tau_Gaussian(sig, check_tau=None, symm=True, all_bins=False):
+def check_chi_tau_gaussian(sig, check_tau=None, symm=True, all_bins=False):
     """Plots chi_xx and chi_xy at specified tau to see if Gaussian"""
     chi_xx, chi_xy = sig._prep_chi(symm=symm)
+    # chi_xx, chi_xy = sig.chi_xx, sig.chi_xy
+    # print(np.all(chi_xx, sig.chi_xx))
+    # print(np.all(chi_xy, sig.chi_xy))
     if check_tau is None:
         check_tau = sig.beta/2
     fig, ax = plt.subplots(ncols=2, figsize=(default_figsize[0]*2, default_figsize[1]))
     check_tau_str = rf"$\beta \times ${check_tau/sig.beta:.2f}"
-    maxent.check_G_tau_gaussian(chi_xx, sig.taus, check_tau, ax=ax[0], ylabel=rf'$\chi_{{xx}}(\tau = $ {check_tau_str})')
-    maxent.check_G_tau_gaussian(np.real(-1j*chi_xy), sig.taus, check_tau, ax=ax[1], ylabel=rf'$-i\chi_{{xy}}(\tau = {check_tau_str})$')
-
+    skews_xx, kurtosis_xx = maxent.check_G_tau_gaussian(chi_xx, sig.taus, check_tau, ax=ax[0], xlabel=rf'$\chi_{{xx}}(\tau = $ {check_tau_str})')
+    skews_xy, kurtosis_xy = maxent.check_G_tau_gaussian(np.real(-1j*chi_xy), sig.taus, check_tau, ax=ax[1], xlabel=rf'$-i\chi_{{xy}}(\tau = ${check_tau_str})')
+    
+    # print df of all skews and kurtoses
+    df = pd.DataFrame({
+        'tau': sig.taus[:chi_xx.shape[1]],
+        'skew_xx': skews_xx,
+        'kurtosis_xx': kurtosis_xx,
+        'skew_xy': skews_xy,
+        'kurtosis_xy': kurtosis_xy
+    })
+    avg_row = {
+    'tau': 'avg',  # Use a label or NaN
+    'skew_xx': df['skew_xx'].mean(),
+    'kurtosis_xx': df['kurtosis_xx'].mean(),
+    'skew_xy': df['skew_xy'].mean(),
+    'kurtosis_xy': df['kurtosis_xy'].mean()
+    }
+    # Append the average row
+    df = pd.concat([df, pd.DataFrame([avg_row])], ignore_index=True)
+    print(df)
+    
 def get_bs_outliers(sig, mode='xx'):
     """Find bs indices which differ the most from the mean."""
     if mode=='xx':
