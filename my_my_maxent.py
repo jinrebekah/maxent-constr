@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cvxpy as cp
 import scipy
+import resource
 
 import sys 
 import os
@@ -40,18 +41,19 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     nbin = G.shape[0]
     Gavg = G.mean(0)
 
-    # ---------- Change to basis in which C is diagonal (apparently makes calculating chi^2 easier?) ----------
+    # ---------- Change to basis in which C is diagonal to remove correlations between tau ----------
     # sigma, Uc = np.linalg.eigh(np.cov(G.T) / nbin) # COB matrix
     # Uc = Uc.T
     # W = 1.0/sigma
     sigma, Uc = np.linalg.svd(G - Gavg, False)[1:]
-    W = (nbin*(nbin-1)) / (sigma * sigma)
+    W = (nbin*(nbin-1)) / (sigma * sigma) # equivalent to above, just using svd for some reason
     # Recommended step: check C eigenvalues, too small (W too big) "might make optimizing Q[A] difficult"
+    # I think this is an indication there's not enough bins
     W_ratio_max = 1e8
     W_cap = W_ratio_max*W.min()
     n_large = np.sum(W.max() > W_cap)
     if W.max() > W_cap:
-        # print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
+        print(f"clipping {n_large} W values to W.min()*{W_ratio_max}")
         W[W > W_cap] = W_cap # Set values of W above W_cap to W_cap
     K = np.dot(Uc, K)
     G = np.dot(Uc, Gavg) # just calling these G and K
@@ -373,7 +375,7 @@ def Q_u(u, G, K, m, W, al, precalc):
 
 def Q(A, G, K, m, W, al):
     if np.isnan(A).any():
-        return np.nan, np.nan, np.nan, np.nan, np.nan
+        return np.full(5, np.nan)
     
     S = (A - m - scipy.special.xlogy(A, A/m)).sum()
     KAG = K@A - G
@@ -386,6 +388,30 @@ def Q(A, G, K, m, W, al):
     dlnP = np.sum(lam/(al + lam)) / (2*al) + (A - m - scipy.special.xlogy(A, A/m)).sum()
     
     return al*S - 0.5*chi2, S, chi2, lnP, dlnP
+
+# ================================= various random deubgging funcs  =================================
+def plot_chi_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title=''):
+    """Plots G(tau). Set all_bins=True to see all bins plotted on top of each other."""
+    # first index of G is bin
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    taus = taus[:G.shape[1]]
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(default_figsize[0], default_figsize[1]))
+
+    if all_bins:
+        Gavg = np.mean(G, axis=0)
+        ax.plot(taus, Gavg)
+    else:
+        for G_bin in G:
+            ax.plot(taus, G_bin, color = color_cycle[0])
+
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel(r'$\tau$')
+    ax.set_title(title)
+
+def check_chi_tau_gaussian(G, tau=None):
+    pass
 
 # ================================= from Edwin's maxent =================================
 
@@ -418,3 +444,22 @@ def kernel_b(beta, tau, w, sym=True):
                 / (1. - np.exp(-beta*w))
     else:
         return w*np.exp(-tau[:, None]*w)/(1. - np.exp(-beta*w))
+
+# ================================= other helper funcs =================================
+
+def find_data_folder(dir, nflux, n, U, beta):
+    """Find data dir with given params in dir (e.g. 8x8_tp0)"""
+    for path, dirnames, filenames in os.walk(dir):
+        pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
+        # print(path, dirnames, filenames)
+        match = re.search(pattern, path)
+        
+        if match:
+            nflux_match = int(match.group(1))
+            n_match = float(match.group(2))
+            beta_match = float(match.group(3))
+            U_match = int(match.group(4))
+            if nflux==nflux_match and n==n_match and beta==beta_match and U==U_match:
+                return path + '/'
+        else:
+            continue
