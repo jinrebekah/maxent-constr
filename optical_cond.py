@@ -75,16 +75,8 @@ class sigma:
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_settings_vals(self.settings_xy)
 
-        # stupid name but enable_inspect_al basically just toggles saving As_xx, As_sum, chi2s_sum, chi2s_xx in the sigma.results df, which takes up a huge amount of space in the pickle
-        # and rn inspect_al is the only function that uses these
-
-        # Initialize sigma results storage df
-        results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
-        if sigma_type == 'xy':
-            results[['sum_sig','A_sum', 'im_sig_xy', 're_sig_xy']] = [None] * 4
-
         # Solve for sigma
-        if sigma_type == 'xx':
+        if sigma_type == 'xx' or self.nflux==0:
             self.calc_sigma_xx()
         if sigma_type == 'xy':
             self.calc_sigma_xy()
@@ -140,7 +132,7 @@ class sigma:
         opt_method = settings['opt_method']
         al_method = settings['al_method']
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
-        als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-2))
+        als = np.logspace(7, 1, 1+20*(7-1)) if 'krnl' in settings else np.logspace(7, 1, 1+20*(7-1))
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'al_method': al_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
@@ -401,52 +393,49 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None, w_lim=None):
+def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
+    # running calc_sigma_*_bins is very expensive
     
+    # Ensure cache dict exists
+    # if not hasattr(sig, '_debug_cache'):
+    #     sig._debug_cache = {}
+
     resample = sig.results['resample'][bs]
-
-    As_xx = sig._calc_sigma_xx_bins(resample, inspect_al = True)
-
-
-    
+    if sig_type == 'xx':
+        re_sigmas_xx, debug_vals = sig._calc_sigma_xx_bins(resample, inspect_al = False, return_As=True)
+    elif sig_type == 'xy':
+        re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = sig._calc_sigma_xy_bins(resample, inspect_al = False, return_As=True)
+        A_sum_vs_al, chi2_sum_vs_al, norm_sum, al_sum = debug_vals['As_sum'], debug_vals['chi2s_sum'], debug_vals['norm_sum'], debug_vals['al_sum']
+        
+    A_xx_vs_al, chi2_xx_vs_al, norm_xx, al_xx = debug_vals['As_xx'], debug_vals['chi2s_xx'], debug_vals['norm_xx'], debug_vals['al_xx']
     if sig.settings_xx['krnl'] == 'symm':
-        As_xx = np.concatenate((sig.results['As_xx'][bs][:, ::-1], sig.results['As_xx'][bs]), axis=1)
-    else:
-        As_xx = sig.results['As_xx'][bs]
-
-    if sigma_type == 'xx':
+        A_xx_vs_al = np.concatenate((A_xx_vs_al[:, ::-1], A_xx_vs_al), axis=1)
+    sigmas_xx_vs_al = np.real(A_xx_vs_al/sig.dws * (norm_xx/sig.sign[resample].mean())*np.pi)
+    
+    if sig_type == 'xx':
         # See color plot of sig_xx spectra vs. alphas
-        if redo_select_al: sig._calc_sigma_xx_bins(resample, inspect_al = True)
-        As = sig.results['As_xx'][bs]
-        sigmas_xx_al = np.real(As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi)
-        sigmas_al = sigmas_xx_al
-        optimal_al = sig.results['al_xx'][bs]
-        chi2s = sig.results['chi2s_xx'][bs]
+        # A_vs_al = A_xx_vs_al
+        sigmas_vs_al = sigmas_xx_vs_al
+        optimal_al = al_xx
+        chi2s = chi2_xx_vs_al
         sig_label = r'Re[$\sigma_{xx}(\omega)$]'
         als = sig.input_xx['als']
-    else:
+    else: # if sig_type == 'xy'
         # See color plot of im_sig_xy vs. alphas
-        if redo_select_al: sig._calc_sigma_xy_bins(resample, inspect_al = True)
         # sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
-        As = sig.results['As_sum'][bs]
-        sigmas_xx = sig.results['re_sig_xx'][bs]
-        
-        sigmas_sum_al = np.real((sig.results['As_sum'][bs])/sig.dws * (sig.results['norm_sum'][bs]/sig.sign[resample].mean()))*np.pi
-        # sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
-
-        sigmas_al = sigmas_sum_al - sigmas_xx
-        optimal_al = sig.results['al_sum'][bs]
-        chi2s = sig.results['chi2s_sum'][bs]
+        sigmas_sum_vs_al = np.real((A_sum_vs_al)/sig.dws * (norm_sum/sig.sign[resample].mean()))*np.pi
+        sigmas_vs_al = sigmas_sum_vs_al - sigmas_xx
+        optimal_al = al_sum
+        chi2s = chi2_sum_vs_al
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
         als = sig.input_xy['als']
 
     if np.any(als_plot)==None:
         als_plot=[]
     als_plot = np.array(als_plot)
-    als_plot = np.append(als_plot, optimal_al)
-    # als_plot.append(optimal_al) # always plot optimal al
+    als_plot = np.append(als_plot, optimal_al) # always plot optimal al
 
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
     fig, ax = plt.subplots(figsize = (default_figsize[0]*3, default_figsize[1]), ncols=3, layout='constrained')
@@ -457,14 +446,15 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None, w_lim
     ax[0].set_yscale('log')
     ax[0].set_xlabel(r'$\alpha$')
     ax[0].set_ylabel(r'$\chi^2$')
+    # also should include P(alpha)f
 
     # Color plot
-    lim = max(np.nanmin(sigmas_al), np.nanmax(sigmas_al))
+    lim = max(np.nanmin(sigmas_vs_al), np.nanmax(sigmas_vs_al))
     # print(lim)
     from matplotlib.colors import TwoSlopeNorm
     norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
     X, Y = np.meshgrid(als, sig.ws)
-    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_al), cmap='plasma', rasterized=True, norm=norm)
+    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_vs_al), cmap='plasma', rasterized=True, norm=norm)
     ax[1].invert_yaxis()
     ax[1].set_xscale('log')
     fig.colorbar(pcol, ax=ax[1])
@@ -481,7 +471,7 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None, w_lim
     for i, al_plot in enumerate(als_plot):
         color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
-        ax[2].plot(sig.ws, sigmas_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
+        ax[2].plot(sig.ws, sigmas_vs_al[al_idx], color=color, label=rf'$\alpha$ = {al_plot: .2e}')
         for j in range(2): ax[j].axvline(al_plot, color=color) # Plot lines on colorplot and chi2 plots at als_plot
 
     ax[2].set_xlabel(r'$\omega$')
