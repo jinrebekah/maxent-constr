@@ -28,7 +28,7 @@ from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
 class sigma:
-    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}, enable_inspect_al=False):
+    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}):
         # Store simulation parameters
         self.path = path
         self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
@@ -77,7 +77,6 @@ class sigma:
 
         # stupid name but enable_inspect_al basically just toggles saving As_xx, As_sum, chi2s_sum, chi2s_xx in the sigma.results df, which takes up a huge amount of space in the pickle
         # and rn inspect_al is the only function that uses these
-        self.enable_inspect_al = enable_inspect_al
 
         # Initialize sigma results storage df
         results = pd.DataFrame(columns=['re_sig_xx','A_xx', 'norm', 'al'])
@@ -149,17 +148,17 @@ class sigma:
             bs_list = []
             for i in tqdm(range(self.bs), desc='Sigma_xx bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
-                re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(resample)
+                re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(resample, return_As=False)
                 bs_dict = {'re_sig_xx': re_sigmas_xx, 'resample': resample, **debug_vals}
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
-            re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins, inspect_al = self.settings_xx['inspect_al'])
+            re_sigmas_xx, debug_vals = self._calc_sigma_xx_bins(all_bins, inspect_al = self.settings_xx['inspect_al'], return_As=False)
             bs_list = [{'re_sig_xx': re_sigmas_xx, 'resample': all_bins, **debug_vals}]
         # Create results dataframe from list of bs dicts
         self.results = pd.DataFrame(bs_list)
     
-    def _calc_sigma_xx_bins(self, resample, inspect_al=False):
+    def _calc_sigma_xx_bins(self, resample, inspect_al=False, return_As=False):
         """Calculates sigma_xx for bin indices specified by resample."""
         
         f = self.chi_xx[resample].mean(0)
@@ -185,7 +184,7 @@ class sigma:
                 A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
         # re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx} if self.enable_inspect_al else {})} # leave off As_xx and chi2s_xx by default
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx} if return_As else {})} # leave off As_xx and chi2s_xx by default
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -194,20 +193,20 @@ class sigma:
             bs_list = []
             for i in tqdm(range(self.bs), desc='Sigma_xy bootstraps'):
                 resample = np.random.randint(0, self.n_bin, self.n_bin)
-                re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(resample)
+                re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(resample, return_As=False)
                 bs_dict = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, 'resample': resample, **debug_vals}
                 bs_list.append(bs_dict)
         else:
             all_bins = np.arange(self.n_bin)
-            re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(all_bins, inspect_al = self.settings_xy['inspect_al'])
+            re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = self._calc_sigma_xy_bins(all_bins, inspect_al = self.settings_xy['inspect_al'], return_As=False)
             bs_list = [{'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, 'sig_sum': sigmas_sum, 're_sig_xy': re_sigmas_xy, 'resample': all_bins, **debug_vals}]
         # Create results dataframe from list of bs dicts
         self.results = pd.DataFrame(bs_list)
 
-    def _calc_sigma_xy_bins(self, resample, inspect_al=False):
+    def _calc_sigma_xy_bins(self, resample, inspect_al=False, return_As=False):
         """Calculates sigma_xy for bin indices specified by resample."""
         # Get sigma_xx
-        re_sigmas_xx, debug_vals_xx = self._calc_sigma_xx_bins(resample)
+        re_sigmas_xx, debug_vals_xx = self._calc_sigma_xx_bins(resample, return_As=return_As)
         A_xx = debug_vals_xx['A_xx']
         # Maxent sum
         f = np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
@@ -230,7 +229,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_sum': As_sum, 'chi2s_sum': chi2s_sum} if self.enable_inspect_al else {}), **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_sum': As_sum, 'chi2s_sum': chi2s_sum} if return_As else {}), **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
@@ -407,6 +406,10 @@ def inspect_al(sig, sigma_type, bs, redo_select_al = False, als_plot=None, w_lim
     # Also include color plot of spectra vs. alpha
     
     resample = sig.results['resample'][bs]
+
+    As_xx = sig._calc_sigma_xx_bins(resample, inspect_al = True)
+
+
     
     if sig.settings_xx['krnl'] == 'symm':
         As_xx = np.concatenate((sig.results['As_xx'][bs][:, ::-1], sig.results['As_xx'][bs]), axis=1)
