@@ -159,11 +159,7 @@ class sigma:
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            
-            plt.figure()
-            plt.plot(np.arange(self.L // 2 + 1), g.mean(0))
-
-            A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al) # No factor of 2 here
+            A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
@@ -171,17 +167,17 @@ class sigma:
             g = self.chi_xx[resample] / chiq0w0
             if self.input_xx['opt_method'] == 'Bryan':
                 # Unconstrained
-                A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+                A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
             else:
                 # Define symmetry constraint matrices for A_xx
                 b = np.zeros(self.N//2)
                 B = np.hstack((np.flip(np.identity(self.N//2), axis=0), -1*np.identity(self.N//2)))
                 self.input_xx['constr_matrix'] = B
                 self.input_xx['constr_vec'] = b
-                A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+                A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
         re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
         # re_sigmas_xx = np.real(A_xx / self.dws * (chiq0w0 / self.sign.mean()) * np.pi)
-        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx} if return_As else {})} # leave off As_xx and chi2s_xx by default
+        debug_vals = {'A_xx': A_xx, 'norm_xx': chiq0w0, 'al_xx': al_xx, **({'As_xx': As_xx, 'chi2s_xx': chi2s_xx, 'lnPs_xx': lnPs_xx} if return_As else {})} # leave off As_xx, chi2s_xx, lnPs_ss by default
         return re_sigmas_xx, debug_vals
 
     def calc_sigma_xy(self):
@@ -211,14 +207,14 @@ class sigma:
         g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
-            A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
+            A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         elif self.input_xy['opt_method'] == 'cvxpy':
             # Define symmetry constraint matrices
             b = 2*A_xx[self.N//2:]
             B = np.hstack((np.flip(np.identity(self.N//2), axis=0), np.identity(self.N//2)))
             self.input_xy['constr_matrix'] = B
             self.input_xy['constr_vec'] = b
-            A_sum, al_sum, As_sum, chi2s_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
+            A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         # np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
         im_sigmas_xy = sigmas_sum-re_sigmas_xx
@@ -226,7 +222,7 @@ class sigma:
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
 
-        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_sum': As_sum, 'chi2s_sum': chi2s_sum} if return_As else {}), **debug_vals_xx}
+        debug_vals = {'norm_sum': chiq0w0, 'A_sum': A_sum, 'A_xy': A_sum-A_xx, 'al_sum': al_sum, **({'As_sum': As_sum, 'chi2s_sum': chi2s_sum, 'lnPs_sum': lnPs_sum} if return_As else {}), **debug_vals_xx}
         return re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals
 
     def print_summary(self):
@@ -411,7 +407,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         if bs not in cache or redo:
             # compute xx for the first time and store in _al_cache
             re_sigmas_xx, debug_vals = sig._calc_sigma_xx_bins(resample, inspect_al = redo, return_As=True)
-            A_xx_vs_al, chi2_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx']
+            A_xx_vs_al, chi2_xx_vs_al, lnP_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx'], debug_vals['lnPs_xx']
             norm_xx, al_xx = debug_vals['norm_xx'], debug_vals['al_xx']
             cache[bs] = {'re_sig_xx': re_sigmas_xx, **debug_vals}
         else:
@@ -420,6 +416,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
             re_sigmas_xx = cache[bs]['re_sig_xx']
             A_xx_vs_al = cache[bs]['As_xx']
             chi2_xx_vs_al = cache[bs]['chi2s_xx']
+            lnP_xx_vs_al = cache[bs]['lnPs_xx']
             norm_xx = cache[bs]['norm_xx']
             al_xx = cache[bs]['al_xx']
             
@@ -428,9 +425,9 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         if not (bs in cache and 'As_sum' in cache[bs]) or redo:
             # compute xx and xy for the first time and store in _al_cache
             re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = sig._calc_sigma_xy_bins(resample, inspect_al = redo, return_As=True)
-            A_xx_vs_al, chi2_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx']
+            A_xx_vs_al, chi2_xx_vs_al, lnP_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx'], debug_vals['lnPs_xx']
             norm_xx, al_xx = debug_vals['norm_xx'], debug_vals['al_xx']
-            A_sum_vs_al, chi2_sum_vs_al = debug_vals['As_sum'], debug_vals['chi2s_sum']
+            A_sum_vs_al, chi2_sum_vs_al, lnP_sum_vs_al = debug_vals['As_sum'], debug_vals['chi2s_sum'], debug_vals['lnPs_sum']
             norm_sum, al_sum = debug_vals['norm_sum'], debug_vals['al_sum']
             cache[bs] = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, **debug_vals}
         else:
@@ -440,11 +437,13 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
             im_sigmas_xy = cache[bs]['im_sig_xy']
             A_xx_vs_al = cache[bs]['As_xx']
             chi2_xx_vs_al = cache[bs]['chi2s_xx']
+            lnP_xx_vs_al = cache[bs]['lnPs_xx']
             norm_xx = cache[bs]['norm_xx']
             al_xx = cache[bs]['al_xx']
             
             A_sum_vs_al = cache[bs]['As_sum']
             chi2_sum_vs_al = cache[bs]['chi2s_sum']
+            lnP_sum_vs_al = cache[bs]['lnPs_xx']
             norm_sum = cache[bs]['norm_sum']
             al_sum = cache[bs]['al_sum']
             
@@ -459,6 +458,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         sigmas = re_sigmas_xx
         optimal_al = al_xx
         chi2s = chi2_xx_vs_al
+        lnPs = lnP_xx_vs_al
         sig_label = r'Re[$\sigma_{xx}(\omega)$]'
         als = sig.input_xx['als']
     else: # if sig_type == 'xy'
@@ -469,6 +469,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         sigmas = im_sigmas_xy
         optimal_al = al_sum
         chi2s = chi2_sum_vs_al
+        lnPs = lnP_sum_vs_al
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
         als = sig.input_xy['als']
 
@@ -487,6 +488,10 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
     ax[0].set_xlabel(r'$\alpha$')
     ax[0].set_ylabel(r'$\chi^2$')
     # also should include P(alpha)f
+    ax2 = ax[0].twinx()
+    ax2.plot(als, np.exp(lnPs), 'g.', ms=3)
+    # ax2.plot([al, al], [0, np.exp(lnPs.max())], 'g', lw=1)
+    ax2.set_ylabel(r"$P(\alpha)$")
 
     # Color plot
     lim = max(np.nanmin(sigmas_vs_al), np.nanmax(sigmas_vs_al))
@@ -509,7 +514,9 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         colors = sns.color_palette('tab10', len(als_plot)-1)
         colors.append('r')
 
-    ax[2].plot(sig.ws, sigmas, color=colors[0], label=rf'$\alpha$ = {optimal_al: .2e}')
+    label = rf'$\alpha$ = {optimal_al: .2e}' if optimal_al is not None else 'Bryan'
+    ax[2].plot(sig.ws, sigmas, color=colors[0], label=label)
+    
     for i, al_plot in enumerate(als_plot):
         color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
@@ -527,6 +534,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
     plt.show()
 
 
+def compare_chi_tau(sigs, mode='xx', bs=0):
     """Plots asdf."""
     # Verify that sig1 and sig2 have the same data
     sig1 = sigs[0]

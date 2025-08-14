@@ -107,7 +107,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
                 As[i] = A.value
                 statuses[i] = prob.status
             except Exception as e:
-                print(f"{al:.2e} optimization failed with error: {e}")
+                # print(f"{al:.2e} optimization failed with error: {e}")
                 As[i] = np.full(K.shape[1], np.nan) # Make array of nans if the optimization fails
                 statuses[i] = 'fail'
             Qs[i], Ss[i], chi2s[i], lnPs[i], dlnPs[i] = Q(As[i], G, K, m, W, al) # nan too if A has nan
@@ -135,7 +135,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
             Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol)
             A = A.value
     
-    return A, optimal_al, As, chi2s
+    return A, optimal_al, As, chi2s, lnPs
     
 def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smooth=False, inspect_al=False):
     """Selects optimal alpha. 
@@ -194,7 +194,9 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
     if inspect_al:
         # Report how many failed to solve
         print(f"Als failed to solve: {(~mask).sum()}")
-        print(f"Optimal chi2: {np.exp(chi2_fit(np.log(al)))}")
+        print(als[~mask])
+        if al is not None:
+            print(f"Optimal chi2: {np.exp(chi2_fit(np.log(al)))}")
 
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
         # Also plot whether points were 'optimal_inaccurate'
@@ -207,8 +209,9 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         
         ax.set_xlabel(r"$\alpha$")
         ax.set_ylabel(r"$\chi^2$")
-        ax.axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
-        ax.annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+        if al is not None:
+            ax.axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
+            ax.annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax2 = ax.twinx()
         ax2.plot(als, np.exp(lnPs), 'g.', ms=3)
         # ax2.plot([al, al], [0, np.exp(lnPs.max())], 'g', lw=1)
@@ -244,8 +247,10 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
             ax[i].set_xscale("log")
             ax[i].set_xlabel(r"$\alpha$")
             ax[i].set_ylabel(plot_labels[i])
-            ax[i].axvline(al, color='g')
-        ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
+            if al is not None:
+                ax[i].axvline(al, color='g')
+        if al is not None:
+            ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
         plt.show()
     return al, A
