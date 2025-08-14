@@ -113,24 +113,21 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
             Qs[i], Ss[i], chi2s[i], lnPs[i], dlnPs[i] = Q(As[i], G, K, m, W, al) # nan too if A has nan
 
     # Filter out nans
-    mask = ~np.isnan(chi2s)
-    als = als[mask]
-    Qs = Qs[mask]
-    Ss = Ss[mask]
-    chi2s = chi2s[mask]
-    lnPs = lnPs[mask]
-    dlnPs = dlnPs[mask]
+    # mask = ~np.isnan(chi2s)
+    # als = als[mask]
+    # Qs = Qs[mask]
+    # Ss = Ss[mask]
+    # chi2s = chi2s[mask]
+    # lnPs = lnPs[mask]
+    # dlnPs = dlnPs[mask]
+    # statuses = statuses[mask]
 
     # ------------------------------ Select optimal al ------------------------------
-    optimal_al = select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method=al_method, smooth=smooth_al, inspect_al=inspect_al)
+    optimal_al, A = select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method=al_method, smooth=smooth_al, inspect_al=inspect_al)
 
     # ------------------------------ Calculate A with optimal al ------------------------------
-    if al_method == 'BT':
-        # grab A from As
-        idx = np.argmax(als == optimal_al)
-        A = As[idx]
-    else:
-        # otherwise recalculate A, pick up optimization setup from earlier
+    if A is None:
+        # recalculate A, pick up optimization setup from earlier
         if opt_method == 'Bryan':
             A, _ = find_A_Bryan(G, K, m, W, optimal_al, u_init=u_init, precalc=precalc, inspect=inspect_opt)
         elif opt_method == 'cvxpy':
@@ -145,14 +142,32 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
 
     Args:
         al_method (str): al selection method. Options are:
-            - 'classic': 
-            - 'historic':
+            - 'historic'
+            - 'classic' 
+            - 'Bryan'
             - 'BT'
     Returns:
         al (float): Optimal alpha value.
     """
+    mask = ~np.isnan(chi2s)
+    
+    als = als[mask]
+    Qs = Qs[mask]
+    Ss = Ss[mask]
+    chi2s = chi2s[mask]
+    lnPs = lnPs[mask]
+    dlnPs = dlnPs[mask]
+    statuses = statuses[mask]
     order = als.argsort()
     
+    if smooth:
+        # Smooth modified BT, currently for use with noisy constrained xy chi2 data
+        chi2_fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=3)
+    else:
+        # Default BT
+        # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
+        chi2_fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=1)
+        
     if al_method == 'historic':
         pass
     elif al_method == 'classic':
@@ -160,27 +175,26 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         fit = CubicSpline(np.log(als[order]), dlnPs[order])
         roots = fit.roots(extrapolate=False)
         al = np.exp(fit.roots(extrapolate=False)[0])
+        A = None
     elif al_method == 'Bryan':
-        pass
+        weights = np.exp(lnPs) # is this right (actually proportional to P(alpha)?)
+        Z = np.trapz(weights, x=als) # P normalization
+        A = np.trapz(weights[:, None] * As, x=als, axis=0) / Z
+        al = None
     elif al_method == 'BT':
         # Select optimal alpha based on curvature of log-log plot of chi2 vs. al
-        if smooth:
-            # Smooth modified BT, currently for use with noisy constrained xy chi2 data
-            fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=3)
-        else:
-            # Default BT
-            # fit = CubicSpline(np.log(als[order]), np.log(chi2s[order]))
-            fit = scipy.interpolate.make_smoothing_spline(np.log(als[order]), np.log(chi2s[order]), lam=1)
-        k = fit(np.log(als), 2)/(1 + fit(np.log(als), 1)**2)**1.5
+        k = chi2_fit(np.log(als), 2)/(1 + chi2_fit(np.log(als), 1)**2)**1.5
         al_idx = k.argmax()
         al = als[al_idx]
+        A = As[al_idx]
     else:
-        raise ValueError(f"Unknown al_method '{al_method}'. Must be one of: 'historic', 'classic', 'BT'.")
+        raise ValueError(f"Unknown al_method '{al_method}'. Must be one of: 'historic', 'classic', 'Bryan', 'BT'.")
 
     ### Optional plots for debugging
     if inspect_al:
         # Report how many failed to solve
-        print(f"Als failed to solve: {np.isnan(chi2s).sum()}/{len(als)}")
+        print(f"Als failed to solve: {(~mask).sum()}")
+        print(f"Optimal chi2: {np.exp(chi2_fit(np.log(al)))}")
 
         # Plot chi2 vs. al showing al selection and spline fit, with second derivative peaks.
         # Also plot whether points were 'optimal_inaccurate'
@@ -190,6 +204,7 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         ax.set_yscale("log")
         ax.scatter(als[statuses=='optimal'], chi2s[statuses=='optimal'], s=1.5)
         ax.scatter(als[statuses=='optimal_inaccurate'], chi2s[statuses=='optimal_inaccurate'], s=3)
+        
         ax.set_xlabel(r"$\alpha$")
         ax.set_ylabel(r"$\chi^2$")
         ax.axvline(al, color='g', label = rf"$\alpha$ = {np.round(al, 2)}")
@@ -200,6 +215,7 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         ax2.set_ylabel(r"$P(\alpha)$")
 
         if al_method == 'BT':
+            ax.loglog(als, np.exp(chi2_fit(np.log(als))), color='r', label='f', zorder=-5)
             fig, ax = plt.subplots()
             ax.plot(als, k)
             ax.set_xscale("log")
@@ -232,7 +248,7 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         ax[0].annotate(rf"$\alpha$ = {np.round(al, 2)}", (0.05, 0.9), xycoords='axes fraction', fontsize=10, color='g')
         ax[0].set_yscale("log")
         plt.show()
-    return al
+    return al, A
 
 def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     """Calculate A for given alpha using Bryan's optimization algorithm.
@@ -393,7 +409,6 @@ def Q(A, G, K, m, W, al):
     chi2 = np.dot(KAG*KAG, W)
     Q = al*S - 0.5*chi2
 
-    ####### double check wtf this is
     Z = np.sqrt(W[:, None])*K*np.sqrt(A)
     lam = np.linalg.svd(Z, False)[1]**2
     lnP = 0.5*np.log(al/(al + lam)).sum() + Q

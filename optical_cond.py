@@ -132,7 +132,8 @@ class sigma:
         opt_method = settings['opt_method']
         al_method = settings['al_method']
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
-        als = np.logspace(7, 1, 1+20*(7-1)) if 'krnl' in settings else np.logspace(7, 1, 1+20*(7-1))
+        # als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-1))
+        als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 3, 1+20*(8-3))
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'al_method': al_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
@@ -158,6 +159,10 @@ class sigma:
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
             g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
+            
+            plt.figure()
+            plt.plot(np.arange(self.L // 2 + 1), g.mean(0))
+
             A_xx, al_xx, As_xx, chi2s_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al) # No factor of 2 here
             # Fill in the negative w half of A_xx
             A_xx = np.concatenate((A_xx[::-1], A_xx))
@@ -356,11 +361,8 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
         "sig_sum": r'Re[$\sigma_{xx}(\omega)$] + Im[$\sigma_{xy}(\omega)$]'
     }
 
-    if sigma_name == 're_sig_xy':
-        ws = sig.xs
-    else:
-        ws = sig.ws
-
+    ws = sig.xs if sigma_name == 're_sig_xy' else sig.ws
+    
     if sig.bs:
         if bs_idx is None:
             # Plot all bootstraps
@@ -375,7 +377,7 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
         else:
             # Plot all bootstraps on top of each other
             for i in range(len(sig_bs)):
-                ax.plot(ws, sig_bs[i], lw=0.7, color=color, alpha=0.9, label=label if i==0 else None)
+                ax.plot(ws, sig_bs[i], lw=0.7, color=color, alpha=0.15, label=label if i==0 else None)
     else:
         # Plot all bins result
         ax.plot(ws, sig.results[sigma_name][0], color=color)
@@ -393,23 +395,59 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
+def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
     # running calc_sigma_*_bins is very expensive
-    
-    # Ensure cache dict exists
-    # if not hasattr(sig, '_debug_cache'):
-    #     sig._debug_cache = {}
-
     resample = sig.results['resample'][bs]
+    
+    # Ensure cache df exists
+    if not hasattr(sig, '_al_cache'):
+        print('No cache, recalculating everything.')
+        sig._al_cache = {} # dict I guess
+    cache = sig._al_cache
+    
     if sig_type == 'xx':
-        re_sigmas_xx, debug_vals = sig._calc_sigma_xx_bins(resample, inspect_al = False, return_As=True)
-    elif sig_type == 'xy':
-        re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = sig._calc_sigma_xy_bins(resample, inspect_al = False, return_As=True)
-        A_sum_vs_al, chi2_sum_vs_al, norm_sum, al_sum = debug_vals['As_sum'], debug_vals['chi2s_sum'], debug_vals['norm_sum'], debug_vals['al_sum']
-        
-    A_xx_vs_al, chi2_xx_vs_al, norm_xx, al_xx = debug_vals['As_xx'], debug_vals['chi2s_xx'], debug_vals['norm_xx'], debug_vals['al_xx']
+        if bs not in cache or redo:
+            # compute xx for the first time and store in _al_cache
+            re_sigmas_xx, debug_vals = sig._calc_sigma_xx_bins(resample, inspect_al = redo, return_As=True)
+            A_xx_vs_al, chi2_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx']
+            norm_xx, al_xx = debug_vals['norm_xx'], debug_vals['al_xx']
+            cache[bs] = {'re_sig_xx': re_sigmas_xx, **debug_vals}
+        else:
+            # xx has been computed before, grab from _al_cache in sig
+            print('Grabbing from cache')
+            re_sigmas_xx = cache[bs]['re_sig_xx']
+            A_xx_vs_al = cache[bs]['As_xx']
+            chi2_xx_vs_al = cache[bs]['chi2s_xx']
+            norm_xx = cache[bs]['norm_xx']
+            al_xx = cache[bs]['al_xx']
+            
+        # need re_sigmas_xx, A_xx_vs_al, chi2_xx_vs_al, norm_xx, al_xx
+    elif sig_type == 'xy':     
+        if not (bs in cache and 'As_sum' in cache[bs]) or redo:
+            # compute xx and xy for the first time and store in _al_cache
+            re_sigmas_xy, im_sigmas_xy, sigmas_sum, re_sigmas_xx, debug_vals = sig._calc_sigma_xy_bins(resample, inspect_al = redo, return_As=True)
+            A_xx_vs_al, chi2_xx_vs_al = debug_vals['As_xx'], debug_vals['chi2s_xx']
+            norm_xx, al_xx = debug_vals['norm_xx'], debug_vals['al_xx']
+            A_sum_vs_al, chi2_sum_vs_al = debug_vals['As_sum'], debug_vals['chi2s_sum']
+            norm_sum, al_sum = debug_vals['norm_sum'], debug_vals['al_sum']
+            cache[bs] = {'re_sig_xx': re_sigmas_xx, 'im_sig_xy': im_sigmas_xy, **debug_vals}
+        else:
+            print('Grabbing from cache')
+            # xy has been computed before, grab from _al_cache in sig
+            re_sigmas_xx = cache[bs]['re_sig_xx']
+            im_sigmas_xy = cache[bs]['im_sig_xy']
+            A_xx_vs_al = cache[bs]['As_xx']
+            chi2_xx_vs_al = cache[bs]['chi2s_xx']
+            norm_xx = cache[bs]['norm_xx']
+            al_xx = cache[bs]['al_xx']
+            
+            A_sum_vs_al = cache[bs]['As_sum']
+            chi2_sum_vs_al = cache[bs]['chi2s_sum']
+            norm_sum = cache[bs]['norm_sum']
+            al_sum = cache[bs]['al_sum']
+            
     if sig.settings_xx['krnl'] == 'symm':
         A_xx_vs_al = np.concatenate((A_xx_vs_al[:, ::-1], A_xx_vs_al), axis=1)
     sigmas_xx_vs_al = np.real(A_xx_vs_al/sig.dws * (norm_xx/sig.sign[resample].mean())*np.pi)
@@ -418,6 +456,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
         # See color plot of sig_xx spectra vs. alphas
         # A_vs_al = A_xx_vs_al
         sigmas_vs_al = sigmas_xx_vs_al
+        sigmas = re_sigmas_xx
         optimal_al = al_xx
         chi2s = chi2_xx_vs_al
         sig_label = r'Re[$\sigma_{xx}(\omega)$]'
@@ -426,7 +465,8 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
         # See color plot of im_sig_xy vs. alphas
         # sigmas_xx_al = As_xx/sig.dws * (sig.results['norm_xx'][bs]/sig.sign[resample].mean())*np.pi # not necessary
         sigmas_sum_vs_al = np.real((A_sum_vs_al)/sig.dws * (norm_sum/sig.sign[resample].mean()))*np.pi
-        sigmas_vs_al = sigmas_sum_vs_al - sigmas_xx
+        sigmas_vs_al = sigmas_sum_vs_al - re_sigmas_xx
+        sigmas = im_sigmas_xy
         optimal_al = al_sum
         chi2s = chi2_sum_vs_al
         sig_label = r'Im[$\sigma_{xy}(\omega)$]'
@@ -435,7 +475,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
     if np.any(als_plot)==None:
         als_plot=[]
     als_plot = np.array(als_plot)
-    als_plot = np.append(als_plot, optimal_al) # always plot optimal al
+    # als_plot = np.append(als_plot, optimal_al) # always plot optimal al
 
     # Plot density plot of sigma vs. al, with neighboring plot of spectra at alpha slices in als_plot
     fig, ax = plt.subplots(figsize = (default_figsize[0]*3, default_figsize[1]), ncols=3, layout='constrained')
@@ -468,6 +508,8 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
     else:
         colors = sns.color_palette('tab10', len(als_plot)-1)
         colors.append('r')
+
+    ax[2].plot(sig.ws, sigmas, color=colors[0], label=rf'$\alpha$ = {optimal_al: .2e}')
     for i, al_plot in enumerate(als_plot):
         color = colors[i]
         al_idx = find_nearest(als, al_plot, get_idx=True)
@@ -484,7 +526,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None):
 
     plt.show()
 
-def compare_chi_tau(sigs, mode='xx', bs=0):
+
     """Plots asdf."""
     # Verify that sig1 and sig2 have the same data
     sig1 = sigs[0]
