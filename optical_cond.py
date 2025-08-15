@@ -63,7 +63,7 @@ class sigma:
             'smooth_al': False
         }
         self.settings_xx = {**settings_xx_default, **settings_xx}
-        self.input_xx = self._get_settings_vals(self.settings_xx)
+        self.input_xx = self._get_input(self.settings_xx)
 
         settings_xy_default = {
             'mdl': 'flat',
@@ -73,7 +73,7 @@ class sigma:
             'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
-        self.input_xy = self._get_settings_vals(self.settings_xy)
+        self.input_xy = self._get_input(self.settings_xy)
 
         # Solve for sigma
         if sigma_type == 'xx' or self.nflux==0:
@@ -116,7 +116,7 @@ class sigma:
         chi_xy = 1j*np.imag(chi_xy) # added for nflux != 0 data, should be purely imaginary
         return chi_xx, chi_xy
     
-    def _get_settings_vals(self, settings):
+    def _get_input(self, settings):
         """Kinda dumb but this generates a dict with values corresponding to settings dict."""
         # Returns input dict, which are parameters directly passed to MaxEnt
         # mdl = maxent.model_flat(self.dws) if settings['mdl'] == 'flat' else settings['mdl']
@@ -129,11 +129,14 @@ class sigma:
             mdl = mdl[self.N//2:]
         else:
             krnl = maxent.kernel_b(self.beta, self.taus[:-1], self.ws, sym=False)
+        # make sure mdl is normalized
+        mdl = mdl/np.sum(mdl)
         opt_method = settings['opt_method']
         al_method = settings['al_method']
         smooth_al = settings['smooth_al'] if 'smooth_al' in settings else False
         # als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 2, 1+20*(8-1))
         als = np.logspace(8, 1, 1+20*(8-1)) if 'krnl' in settings else np.logspace(8, 3, 1+20*(8-3))
+        
         return {'m': mdl, 'K': krnl, 'opt_method': opt_method, 'al_method': al_method, 'smooth_al': smooth_al, 'als': als}
 
     def calc_sigma_xx(self):
@@ -158,10 +161,14 @@ class sigma:
         chiq0w0 = CubicSpline(self.taus, np.append(f, f[0])).integrate(0, self.beta)
         if self.settings_xx['krnl'] == 'symm':
             # Symmetric krnl, with half tau and w range. Only unconstrained option
-            g = self.chi_xx[resample, : self.L // 2 + 1] / chiq0w0 # when we truncate taus, it includes the midpoint
-            A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al) # No factor of 2 here
-            # Fill in the negative w half of A_xx
-            A_xx = np.concatenate((A_xx[::-1], A_xx))
+            g = self.chi_xx[resample, : self.L // 2 + 1] / (chiq0w0/2) # when we truncate taus, it includes the midpoint. include factor of 2 for norm.
+            A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+            A_xx = np.concatenate((A_xx[::-1], A_xx))/2 # Fill in the negative w half of A_xx and remove factor of 2. A_xx now properly normalized to 1
+            As_xx = np.concatenate((As_xx[:, ::-1], As_xx), axis=1)/2
+
+            # g = self.chi_xx[resample, : self.L // 2 + 1] / (chiq0w0)
+            # A_xx, al_xx, As_xx, chi2s_xx, lnPs_xx = maxent.maxent(g, **self.input_xx, inspect_al=inspect_al)
+            # A_xx = np.concatenate((A_xx[::-1], A_xx))
         else:
             # Full krnl
             g = self.chi_xx[resample] / chiq0w0
@@ -447,8 +454,8 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
             norm_sum = cache[bs]['norm_sum']
             al_sum = cache[bs]['al_sum']
             
-    if sig.settings_xx['krnl'] == 'symm':
-        A_xx_vs_al = np.concatenate((A_xx_vs_al[:, ::-1], A_xx_vs_al), axis=1)
+    # if sig.settings_xx['krnl'] == 'symm':
+    #     A_xx_vs_al = np.concatenate((A_xx_vs_al[:, ::-1], A_xx_vs_al), axis=1)
     sigmas_xx_vs_al = np.real(A_xx_vs_al/sig.dws * (norm_xx/sig.sign[resample].mean())*np.pi)
     
     if sig_type == 'xx':
