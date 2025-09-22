@@ -109,6 +109,7 @@ class sigma:
         if symm:
             chi_xx = 0.5 * (chi_xx + chi_xx[:, -np.arange(self.L) % self.L]) # symmetrize bin by bin
         chi_xx = np.real(chi_xx) # added for nflux != 0 data, should be purely real
+        print(chi_xx)
         # Get average transverse jj
         chi_xy = 0.5*(-jj_xy+jj_yx)
         if symm:
@@ -306,7 +307,7 @@ def calc_rho_xx_0(sig):
     sig_xy_err = np.std(sig_xy_0_bs)
     return rho_xx_0, rho_xx_err, sig_xx_0, sig_xx_err, sig_xy_0, sig_xy_err
 
-def calc_rho_proxy(sig, bs=200):
+def calc_rho_xx_proxy(sig, bs=200):
     # jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(sig.path, sig.jjq0) # already divided by n_sample
     # colors = sns.color_palette('husl', 2)
     # for bin in range(sig.n_bin):
@@ -328,6 +329,24 @@ def calc_rho_proxy(sig, bs=200):
     proxy2 = np.mean(proxy2_list)
     proxy2_err = np.std(proxy2_list)
     return proxy1, proxy1_err, proxy2, proxy2_err
+
+def calc_sigma_xy_proxy(sig, bs=200):
+    # probably missing factors of whatever but proxy should be roughly proportional to sigma_xy lol...
+
+    proxy_list = []
+    for i in range(bs):
+        resample = np.random.randint(0, sig.n_bin, sig.n_bin)
+        chi_fit =  CubicSpline(sig.taus[:-1], np.mean(np.imag(sig.chi_xy)[resample], axis=0)) # this is antisymmetrized
+
+        chi_slope = chi_fit.derivative(1)(sig.beta/2)
+        proxy_bs = beta**3*chi_slope
+        proxy_list.append(proxy_bs)
+
+    proxy = np.mean(proxy_list)
+    proxy_err = np.std(proxy_list)
+    return proxy, proxy_err
+
+
 
 ############################ Various badly written plotting and debugging funcs ################################
 
@@ -398,7 +417,7 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')
 
-def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
+def inspect_al(sig, sig_type, bs, ws_plot=[0], als_plot=None, w_lim=None, redo=False):
     # Jk actually just redo the bootstrap essentially lmfao just to see the alpha selection plot
     # Also include color plot of spectra vs. alpha
     # running calc_sigma_*_bins is very expensive
@@ -450,7 +469,7 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
             
             A_sum_vs_al = cache[bs]['As_sum']
             chi2_sum_vs_al = cache[bs]['chi2s_sum']
-            lnP_sum_vs_al = cache[bs]['lnPs_xx']
+            lnP_sum_vs_al = cache[bs]['lnPs_sum']
             norm_sum = cache[bs]['norm_sum']
             al_sum = cache[bs]['al_sum']
             
@@ -506,7 +525,8 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
     from matplotlib.colors import TwoSlopeNorm
     norm = TwoSlopeNorm(vmin=-lim, vcenter=0, vmax=lim)
     X, Y = np.meshgrid(als, sig.ws)
-    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_vs_al), cmap='plasma', rasterized=True, norm=norm)
+    # pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_vs_al), cmap='plasma', rasterized=True, norm=norm)
+    pcol = ax[1].pcolormesh(X, Y, np.transpose(sigmas_vs_al), cmap='plasma', rasterized=True)
     ax[1].invert_yaxis()
     ax[1].set_xscale('log')
     fig.colorbar(pcol, ax=ax[1])
@@ -515,14 +535,13 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
     ax[1].set_ylim(-20, 20)
 
     # Spectrum plot
-    if len(als_plot) == 1:
-        colors = ['r']
+    colors = sns.color_palette('tab10', len(als_plot))
+    if optimal_al is not None:
+        label = rf'$\alpha$ = {optimal_al: .2e}'
+        for j in range(2): ax[j].axvline(optimal_al, color='r') # Plot lines on colorplot and chi2 plots at als_plot
     else:
-        colors = sns.color_palette('tab10', len(als_plot)-1)
-        colors.append('r')
-
-    label = rf'$\alpha$ = {optimal_al: .2e}' if optimal_al is not None else 'Bryan'
-    ax[2].plot(sig.ws, sigmas, color=colors[0], label=label)
+        label = 'Bryan'
+    ax[2].plot(sig.ws, sigmas, color='r', label=label)
     
     for i, al_plot in enumerate(als_plot):
         color = colors[i]
@@ -538,8 +557,38 @@ def inspect_al(sig, sig_type, bs, als_plot=None, w_lim=None, redo=False):
         ax[2].set_xlim(-20, 20)
     ax[2].legend()
 
-    plt.show()
 
+    ### BT-suggested diagnostic plots
+    # another plot of spectrum value at ws in ws_plot vs. al
+    fig, ax = plt.subplots()
+    ax.set_xscale('log')
+    for w_plot in ws_plot:
+        idx = np.argmin(np.abs(sig.ws-w_plot))
+        sigma_vals = sigmas_vs_al[:, idx]
+        ax.plot(als, sigma_vals)
+    
+    # plot of (xx for now fml) residuals basically vs. tau, for one alpha
+    fig, ax = plt.subplots()
+    G = np.mean(sig.chi_xx[resample, :] / (sig.results['norm_xx'][bs]), axis=0)
+    als_resid = [optimal_al, *als_plot]
+    for al_resid in als_resid:
+        idx = np.argmin(np.abs(als-al_resid))
+        A_xx = A_xx_vs_al[idx]
+        if sig.settings_xx['krnl']=='symm':
+            # A_xx full length, but krnl is not
+            KA = sig.input_xx['K']@A_xx[sig.N//2:]   # only for the first half of taus
+            KA = np.concatenate((KA, KA[math.ceil(sig.L/2)-1::-1]))[:-1] # without including beta point
+        else:
+            KA = sig.input_xx['K']@A_xx 
+        deltaG = G-KA
+        plt.scatter(sig.taus[:len(deltaG)], deltaG, s=8)
+        plt.plot(sig.taus[:len(deltaG)], deltaG, lw=1)
+        # plt.scatter(sig.taus[:len(deltaG)], KA)
+        # plt.scatter(sig.taus[:len(deltaG)], G)
+    ax.axhline(0, lw=1, ls='--', color='gray')
+    
+    plt.show()
+    
 
 def compare_chi_tau(sigs, mode='xx', bs=0):
     """Plots asdf."""
@@ -560,7 +609,7 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
         chi_label = r'$-i\chi_{xy}(\tau)$'
         KAs = [KA for KA, chi_xy in (sig.get_chi_xy() for sig in sigs)]
         labels = [r'$KA$ Bryan' if sig.settings_xy['opt_method'] == 'Bryan' else r'$KA$ Constr.' for sig in sigs]
-    resids = [KA-chi for KA in KAs]
+    # resids = [KA-chi for KA in KAs]
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
     colors = color_cycle[1:3]
 
@@ -571,7 +620,7 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
     ax[0].set_title('Data')
     ax[0].legend()
 
-    for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i], s=7)
+    # for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i], s=7)
     ax[1].axhline(0, color='gray', ls='--', alpha=0.5)
     # ax[1].set_ylabel('Residuals')
     ax[1].set_title('Residuals')
