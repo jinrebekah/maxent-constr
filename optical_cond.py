@@ -280,25 +280,24 @@ class sigma:
         return KA, chi_xy
 
 ############################ Calculate stuff ################################
-def calc_rho_xx_0(sig):
+def calc_rho_xx_0(sig, use_xy=True):
     # Return DC resistivity + error for sigma object
     
     # Wait jk we prob want a 2D array for re_sig_xx and re_sig_xy, first index is bootstrap
     re_sig_xx_bs = np.array(sig.results['re_sig_xx'].tolist())
-    re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
-
     nflux = sig.nflux
-
     sig_xx_0_bs = np.array([scipy.interpolate.CubicSpline(sig.ws, re_sig_xx)(0) for re_sig_xx in re_sig_xx_bs]) # DC xx conductivity for each bootstrap
-    # Also modified bc the sig_xy data for nflux=0 is false signal and can't be trusted
-    # sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
+    re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
     if nflux==0:
         sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
     else:
         sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs]) # xy
-    
-    rho_xx_0_bs = sig_xx_0_bs/(sig_xx_0_bs**2 + sig_xy_0_bs**2)
-    # print(rho_xx_0_bs, np.shape(rho_xx_0_bs))
+    # Also modified bc the sig_xy data for nflux=0 is false signal and can't be trusted
+    # sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
+    if use_xy:
+        rho_xx_0_bs = sig_xx_0_bs/(sig_xx_0_bs**2 + sig_xy_0_bs**2)
+    else:
+        rho_xx_0_bs = 1/(sig_xx_0_bs)
     rho_xx_0 = np.mean(rho_xx_0_bs)
     rho_xx_err = np.std(rho_xx_0_bs)
     sig_xx_0 = np.mean(sig_xx_0_bs)
@@ -307,7 +306,7 @@ def calc_rho_xx_0(sig):
     sig_xy_err = np.std(sig_xy_0_bs)
     return rho_xx_0, rho_xx_err, sig_xx_0, sig_xx_err, sig_xy_0, sig_xy_err
 
-def calc_rho_xx_proxy(sig, bs=200):
+def calc_rho_proxy(sig, bs=200):
     # jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(sig.path, sig.jjq0) # already divided by n_sample
     # colors = sns.color_palette('husl', 2)
     # for bin in range(sig.n_bin):
@@ -339,7 +338,7 @@ def calc_sigma_xy_proxy(sig, bs=200):
         chi_fit =  CubicSpline(sig.taus[:-1], np.mean(np.imag(sig.chi_xy)[resample], axis=0)) # this is antisymmetrized
 
         chi_slope = chi_fit.derivative(1)(sig.beta/2)
-        proxy_bs = beta**3*chi_slope
+        proxy_bs = -sig.beta**4*chi_slope/(8*np.pi**3)
         proxy_list.append(proxy_bs)
 
     proxy = np.mean(proxy_list)

@@ -183,7 +183,11 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
         al = None
     elif al_method == 'BT':
         # Select optimal alpha based on curvature of log-log plot of chi2 vs. al
-        k = chi2_fit(np.log(als), 2)/(1 + chi2_fit(np.log(als), 1)**2)**1.5
+        k = chi2_fit(np.log(als), 2)/(1 + chi2_fit(np.log(als), 1)**2)**8
+        # k = chi2_fit(np.log(als), 2)/(1 + chi2_fit(np.log(als), 1)**2)**1.5
+        # gamma = 0.5
+        # chi2_fit_BT = scipy.interpolate.make_smoothing_spline(gamma*np.log(als[order]), np.log(chi2s[order]), lam=1)
+        # k = chi2_fit_BT(np.log(als), 2)
         al_idx = k.argmax()
         al = als[al_idx]
         A = As[al_idx]
@@ -278,6 +282,7 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
     step_drop_mu = 0.125  # decrease mu if step_size < this
     dQ_threshold = 1e-10
     max_small_dQ = 7  # stop if dQ/Q < dQ_threshold this many times in a row
+    # max_small_dQ = 10  # stop if dQ/Q < dQ_threshold this many times in a row
     max_iter = 1000  # max num of iterations if above condition not met
 
     ### Grad and hess funcs
@@ -312,7 +317,7 @@ def find_A_Bryan(G, K, m, W, al, u_init=None, precalc=None, inspect=False):
         U, SigmaVT, M = precalc
 
     s = M.shape[0]
-    u = u_init if u_init is not None else np.zeros(s)
+    u = u_init if u_init is not None else np.zeros(s, dtype=G.dtype)
     mu = al
     Q_old, *_ = Q_u(u, G, K, m, W, al, precalc)
 
@@ -431,11 +436,11 @@ def plot_G_tau(G, taus, ax=None, all_bins=False, ylabel=r'$G(\tau)$', title='', 
         fig, ax = plt.subplots(figsize=(default_figsize[0], default_figsize[1]))
 
     if all_bins:
-        Gavg = np.mean(G, axis=0)
-        ax.plot(taus, Gavg, label=label, color=color)
-    else:
         for i, G_bin in enumerate(G):
             ax.plot(taus, G_bin, color = color, label=label if i==0 else None)
+    else:
+        Gavg = np.mean(G, axis=0)
+        ax.plot(taus, Gavg, label=label, color=color)
 
     ax.set_ylabel(ylabel)
     ax.set_xlabel(r'$\tau$')
