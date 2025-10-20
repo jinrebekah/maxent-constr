@@ -37,7 +37,7 @@ class sigma:
         self.taus = np.linspace(0, self.beta, self.L + 1)
         # get n from path
         
-        pattern = r"nflux(\d+)/n([\d.]+)"
+        pattern = r"nflux(\d+)/n(-?[\d.]+)"
         match = re.search(pattern, path)
         if match:
             self.nflux = int(match.group(1))
@@ -754,13 +754,13 @@ def find_data_folder(dir, nflux, n, U, beta, mu=None):
     
     pattern = f"beta{beta:g}_U{U}"
     if mu is not None:
+        mu = np.round(mu, 3) # may require adjustment later lol
         pattern += f".*mu{mu}"
     pattern = re.compile(pattern)
-    for f in search_dir.rglob("*"):
-        if f.is_dir():
-            match = pattern.search(str(f))
-            if match and list(f.glob("*.h5")): # checks that f contains .h5 files
-                return str(f) + '/'
+    for f in search_dir.rglob("*/"):
+        match = pattern.search(str(f))
+        if match and list(f.glob("*.h5")): # checks that f contains .h5 files
+            return str(f) + '/'
     return None
 
 def find_nearest(array, value, get_idx = False):
