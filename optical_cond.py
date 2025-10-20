@@ -21,7 +21,6 @@ import pandas as pd
 import seaborn as sns
 import pickle
 import re
-
 from pathlib import Path
 
 from scipy.interpolate import CubicSpline
@@ -608,7 +607,7 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
         chi_label = r'$-i\chi_{xy}(\tau)$'
         KAs = [KA for KA, chi_xy in (sig.get_chi_xy() for sig in sigs)]
         labels = [r'$KA$ Bryan' if sig.settings_xy['opt_method'] == 'Bryan' else r'$KA$ Constr.' for sig in sigs]
-    # resids = [KA-chi for KA in KAs]
+    resids = [KA-chi for KA in KAs]
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
     colors = color_cycle[1:3]
 
@@ -619,7 +618,7 @@ def compare_chi_tau(sigs, mode='xx', bs=0):
     ax[0].set_title('Data')
     ax[0].legend()
 
-    # for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i], s=7)
+    for i in range(len(sigs)): ax[1].scatter(taus, resids[i], color=colors[i], s=7)
     ax[1].axhline(0, color='gray', ls='--', alpha=0.5)
     # ax[1].set_ylabel('Residuals')
     ax[1].set_title('Residuals')
@@ -746,17 +745,22 @@ def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None):
 
 ############################ Other random helper funcs ################################
 
-def find_data_folder(dir, nflux, n, U, beta):
+def find_data_folder(dir, nflux, n, U, beta, mu=None):
     """Find data dir with given params in dir (e.g. 8x8_tp0)"""
-    search_pattern = os.path.join(
-        dir,
-        f"nflux{nflux}",
-        f"n{n}",
-        f"beta{beta:g}_U{U}_mu*"
-    )
-    matches = glob.glob(search_pattern)
-    if matches:
-        return matches[0] + '/'  # Return the first match
+    search_dir = Path(os.path.join(dir, f"nflux{nflux}", f"n{n}")) # directory to search in
+    if not os.path.exists(search_dir):
+        print(f'{search_dir} does not exist.')
+        return None
+    
+    pattern = f"beta{beta:g}_U{U}"
+    if mu is not None:
+        pattern += f".*mu{mu}"
+    pattern = re.compile(pattern)
+    for f in search_dir.rglob("*"):
+        if f.is_dir():
+            match = pattern.search(str(f))
+            if match and list(f.glob("*.h5")): # checks that f contains .h5 files
+                return str(f) + '/'
     return None
 
 def find_nearest(array, value, get_idx = False):
