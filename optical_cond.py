@@ -305,6 +305,22 @@ def calc_rho_xx_0(sig, use_xy=True):
     sig_xy_err = np.std(sig_xy_0_bs)
     return rho_xx_0, rho_xx_err, sig_xx_0, sig_xx_err, sig_xy_0, sig_xy_err
 
+def calc_sig_xx_0(sig):
+    re_sig_xx_bs = np.array(sig.results['re_sig_xx'].tolist())
+    sig_xx_0_bs = np.array([scipy.interpolate.CubicSpline(sig.ws, re_sig_xx)(0) for re_sig_xx in re_sig_xx_bs]) # DC xx conductivity for each bootstrap
+    sig_xx_0 = np.mean(sig_xx_0_bs)
+    sig_xx_err = np.std(sig_xx_0_bs)
+    return sig_xx_0, sig_xx_err
+    
+def calc_sig_xy_0(sig):
+    if nflux==0:
+        sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
+    else:
+        sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs])
+    sig_xy_0 = np.mean(sig_xy_0_bs)
+    sig_xy_err = np.std(sig_xy_0_bs)
+    return sig_xy_0, sig_xy_err
+
 def calc_rho_proxy(sig, bs=200):
     # jj_xx, jj_yy, jj_xy, jj_yx = jqjq.electrical_sum(sig.path, sig.jjq0) # already divided by n_sample
     # colors = sns.color_palette('husl', 2)
@@ -722,18 +738,23 @@ def get_bs_outliers(sig, mode='xx'):
 
 ############################ Loading pickle funcs ################################
 
-def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None):
+def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None, mu=None):
     # path is either directly to pickle or to folder containing all pickles ('8x8_tp0')
     pickle_path=None
     if path.endswith('.pickle'):
         pickle_path = path
     else:
-        pattern = rf"nflux{nflux}/n{n}/beta{beta}_U{U}"
+        pattern = rf"nflux{nflux}/n{n}/beta{beta:g}_U{U}"
+        if mu is not None: pattern += f'.*mu{np.round(mu, 3)}'
+        print(pattern)
+        pattern = re.compile(pattern)
+        
         # pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
         for file in Path(path).rglob('*.pickle'):
-            if pattern in str(file):
-                # print(file)
-                pickle_path = file
+            match = pattern.search(str(file))
+            if match:
+                pickle_path = str(file)
+                break
                 
     if pickle_path is None:
         raise FileNotFoundError(f"No pickle found for nflux={nflux}, n={n}, U={U}, beta={beta} in {path}")
