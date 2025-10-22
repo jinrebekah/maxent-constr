@@ -205,13 +205,15 @@ class sigma:
 
     def _calc_sigma_xy_bins(self, resample, inspect_al=False, return_As=False):
         """Calculates sigma_xy for bin indices specified by resample."""
+        xx_factor = 10
+    
         # Get sigma_xx
         re_sigmas_xx, debug_vals_xx = self._calc_sigma_xx_bins(resample, return_As=return_As)
         A_xx = debug_vals_xx['A_xx']
         # Maxent sum
-        f = np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
+        f = xx_factor*np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
-        g = (self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
+        g = (xx_factor*self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
             A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
@@ -224,7 +226,7 @@ class sigma:
             A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         # np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
-        im_sigmas_xy = sigmas_sum-re_sigmas_xx
+        im_sigmas_xy = sigmas_sum-xx_factor*re_sigmas_xx
         # Kramer's Kronig for re_sigma_xy
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
@@ -313,6 +315,7 @@ def calc_sig_xx_0(sig):
     return sig_xx_0, sig_xx_err
     
 def calc_sig_xy_0(sig):
+    re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
     if nflux==0:
         sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
     else:

@@ -61,7 +61,7 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
     G = np.dot(Uc, Gavg) # just calling these G and K
     
     # ------------------------------ Calculate Q, chi2, S, lnP, dlnP for all al in als ------------------------------
-    tol=1e-8
+    tol=1e-7
     
     N = K.shape[1]
     As = np.zeros((als.shape[0], N))
@@ -103,8 +103,8 @@ def maxent(G, K, m, opt_method='Bryan', constr_matrix=None, constr_vec=None, smo
         for i, al in enumerate(als):
             try:
                 alpha.value = al
-                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=True, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol) # Probably more feasibility settings to be adjusted
-                Q_optimal = prob.solve(verbose=True, warm_start=True) # Probably more feasibility settings to be adjusted
+                Q_optimal = prob.solve(solver=cp.CLARABEL, verbose=False, warm_start=True, tol_feas=tol, tol_infeas_abs=tol, tol_infeas_rel=tol, tol_gap_abs=tol, tol_gap_rel=tol) # Probably more feasibility settings to be adjusted
+                # Q_optimal = prob.solve(verbose=True, warm_start=True) # Probably more feasibility settings to be adjusted
                 # Q_optimal = prob.solve(solver=cp.SCS, verbose=True, warm_start=True) # Probably more feasibility settings to be adjusted
                 As[i] = A.value
                 statuses[i] = prob.status
@@ -200,7 +200,7 @@ def select_al(als, As, Qs, Ss, chi2s, lnPs, dlnPs, statuses, al_method='BT', smo
     if inspect_al:
         # Report how many failed to solve
         print(f"Als failed to solve: {(~mask).sum()}")
-        print(als[~mask])
+        # print(als[~mask])
         if al is not None:
             print(f"Optimal chi2: {np.exp(chi2_fit(np.log(al)))}")
 
