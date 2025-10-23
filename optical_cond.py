@@ -316,7 +316,7 @@ def calc_sig_xx_0(sig):
     
 def calc_sig_xy_0(sig):
     re_sig_xy_bs = np.array(sig.results['re_sig_xy'].tolist())
-    if nflux==0:
+    if sig.nflux==0:
         sig_xy_0_bs = np.zeros_like(sig_xx_0_bs)
     else:
         sig_xy_0_bs = np.array([scipy.interpolate.CubicSpline(sig.xs, re_sig_xy)(0) for re_sig_xy in re_sig_xy_bs])
