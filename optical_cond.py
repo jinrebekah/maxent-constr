@@ -749,7 +749,6 @@ def get_sig_pickle(path, nflux=None, n=None, U=None, beta=None, mu=None):
     else:
         pattern = rf"nflux{nflux}/n{n}/beta{beta:g}_U{U}"
         if mu is not None: pattern += f'.*mu{np.round(mu, 3)}'
-        print(pattern)
         pattern = re.compile(pattern)
         
         # pattern = r"nflux(\d+)/n([\d.]+)/beta([\d.]+)_U(\d+)"
