@@ -69,7 +69,7 @@ class sigma:
             'opt_method': 'Bryan',
             'al_method': 'BT',
             'inspect_al': False,
-            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy'),
+            'smooth_al': False,   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy'),
             'xx_scale': 1 # scaling of xx for summed maxent
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
