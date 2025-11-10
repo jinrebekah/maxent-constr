@@ -69,7 +69,8 @@ class sigma:
             'opt_method': 'Bryan',
             'al_method': 'BT',
             'inspect_al': False,
-            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy')
+            'smooth_al': False   # whether to use smoothed alpha selection (necessary for constr. opt_method == 'cvxpy'),
+            'xx_scale': 1 # scaling of xx for summed maxent
         }
         self.settings_xy = {**settings_xy_default, **settings_xy}
         self.input_xy = self._get_input(self.settings_xy)
@@ -205,15 +206,15 @@ class sigma:
 
     def _calc_sigma_xy_bins(self, resample, inspect_al=False, return_As=False):
         """Calculates sigma_xy for bin indices specified by resample."""
-        xx_factor = 10
+        xx_scale = self.settings_xy['xx_scale']
     
         # Get sigma_xx
         re_sigmas_xx, debug_vals_xx = self._calc_sigma_xx_bins(resample, return_As=return_As)
         A_xx = debug_vals_xx['A_xx']
         # Maxent sum
-        f = xx_factor*np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
+        f = xx_scale*np.append(self.chi_xx[resample].mean(0), self.chi_xx[resample].mean(0)[0]) - np.real(1j*np.append(self.chi_xy[resample].mean(0), -self.chi_xy[resample].mean(0)[0]))
         chiq0w0 = CubicSpline(self.taus, f).integrate(0, self.beta)
-        g = (xx_factor*self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
+        g = (xx_scale*self.chi_xx[resample] - np.real(1j*self.chi_xy[resample])) / chiq0w0
         if self.input_xy['opt_method'] == 'Bryan':
             # Unconstrained
             A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
@@ -226,7 +227,7 @@ class sigma:
             A_sum, al_sum, As_sum, chi2s_sum, lnPs_sum = maxent.maxent(g, **self.input_xy, inspect_al = inspect_al)
         sigmas_sum = np.real(A_sum / self.dws * (chiq0w0 / self.sign[resample].mean())) * np.pi
         # np.real(A_xx / self.dws * (chiq0w0 / self.sign[resample].mean()) * np.pi)
-        im_sigmas_xy = sigmas_sum-xx_factor*re_sigmas_xx
+        im_sigmas_xy = sigmas_sum-xx_scale*re_sigmas_xx
         # Kramer's Kronig for re_sigma_xy
         ys = CubicSpline(self.ws, im_sigmas_xy)(self.xs)
         re_sigmas_xy = -np.imag(scipy.signal.hilbert(ys))
