@@ -186,10 +186,10 @@ def _resolve_param(df, value, name):
 def plot_dc_sig_B(df, nfluxes, n, U, betas, mode, Nx=None, Ny=None, tp=None, ylim=None, xlim=None, ax=None, show_legend=True, color_dict=None, style={}):
     if mode=='xx':
         sig_label = 'sig_xx'
-        y_label = rf'$\sigma_{{xx}}$'
+        y_label = rf'$\sigma_{{xx}}$ $[e^2/\hbar]$'
     elif mode=='xy':
         sig_label = 'sig_xy'
-        y_label = rf'$\sigma_{{xy}}$'
+        y_label = rf'$\sigma_{{xy}}$ $[e^2/\hbar]$'
     else:
         pass
     x_label = r'$B$ $[\Phi_0/a^2]$'
@@ -541,7 +541,7 @@ def plot_sig_spectra(pickle_folder, nflux, n, U, betas, sigs_plot=['re_sig_xx', 
 
 ############## boo boo kohler
 # def plot_MR(df, nfluxes, ns, Us, betas, Nx=None, Ny=None, tp=None, mode='rho', shared_axes=True, ylim=None, xlim=None, suptitle='', calc_fit=False, loglog=False, fmt='-', ax=None, show_legend=True):
-def plot_kohler2(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=False, ax=None, suptitle='', xlim=None, ylim=None, show_legend=True, color_dict=None, style={}):
+def plot_kohler2(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=False, ax=None, suptitle='', xlim=None, ylim=None, show_legend=True, color_dict=None, labels=None, style={}):
     x_label = r'$B/\rho_0$'
     y_label = 'MR [%]'
     Nx, Ny, tp, color_dict, ax = _setup_plot(df, nfluxes, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
@@ -571,7 +571,7 @@ def plot_kohler2(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=F
         MR_errs_plot = np.array(MR_errs)[mask]
         # mask = np.array(MRs)>0
 
-        ax.errorbar(Bs_plot/rho_B0, MRs_plot, yerr=MR_errs_plot, xerr=B_errs, label=rf'$\beta$={beta}', color=color_dict[beta], **style)
+        ax.errorbar(Bs_plot/rho_B0, MRs_plot, yerr=MR_errs_plot, xerr=B_errs, label=rf'$\beta$={beta}' if labels is None else labels[k], color=color_dict[beta], **style)
         # ax[i, j].set_yscale('log', nonpositive='clip')
         # ax[i, j].set_xscale('log', nonpositive='clip')
 
