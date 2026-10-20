@@ -25,21 +25,48 @@ plt.style.use(['science','no-latex'])
 # set_matplotlib_formats("svg") 
 default_figsize = plt.rcParams['figure.figsize']
 
-plt.rcParams.update({
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
-    'legend.fontsize': 12,
-    'legend.labelspacing': 0.35,
-    'lines.linewidth': 1.2
-})
+# plt.rcParams.update({
+#     'xtick.labelsize': 12,
+#     'ytick.labelsize': 12,
+#     'axes.labelsize': 12,
+#     'axes.titlesize': 13,
+#     'legend.fontsize': 12,
+#     'legend.labelspacing': 0.35,
+#     'lines.linewidth': 1.2
+# })
 
+### global figure settings -- must come after plt.style.use, since the 'science' style sets
+### its own figsize and font sizes and would otherwise clobber these
+COLUMN_WIDTH = 3.375*0.95                 # in, single-column width of the latex document
+TWO_COLUMN_WIDTH = 7*0.95
+GOLDEN = (1 + 5**0.5) / 2            # 1.618...
+FONT_SIZE = 9                       # pt, for every piece of text in the figure
+FONT_SIZE_LABEL = 10
+MARKER_SIZE = 3.2
+LINE_WIDTH = 1.2
+plt.rcParams.update({
+    'figure.figsize':        (COLUMN_WIDTH, COLUMN_WIDTH / GOLDEN),
+    'font.size':             FONT_SIZE,
+    'axes.labelsize':        FONT_SIZE_LABEL,
+    'axes.titlesize':        FONT_SIZE_LABEL,
+    'xtick.labelsize':       FONT_SIZE,
+    'ytick.labelsize':       FONT_SIZE,
+    'legend.fontsize':       FONT_SIZE,
+    'legend.title_fontsize': FONT_SIZE,
+    'figure.titlesize':      FONT_SIZE_LABEL,
+    'figure.labelsize':      FONT_SIZE_LABEL,
+    'lines.markersize':      MARKER_SIZE,
+    'lines.linewidth':       LINE_WIDTH,
+})
 ERRORBAR_STYLE = dict(
-    markersize=2,
-    elinewidth=1,
+    markersize=4,
+    elinewidth=1.5,
     capsize=0.8,
 )
+# the multi-panel cells below size themselves as default_figsize[0]*n, so this must be read
+# after the rcParams update above
+default_figsize = plt.rcParams['figure.figsize']
+
 
 
 ### functions to load sigma data into dfs
@@ -135,11 +162,18 @@ def calc_MR_df(rho_df, B0=0, calc_xx_proxy=False, save_csv=False):
                     group['MR_'+proxy_name+'_err'] = unp.std_devs(MR_uc_arr)
         # adjust nfluxes for when B0 > 0 used
         group['nflux'] = group['nflux']-B0
+
+        cols = ['Nx', 'Ny', 'tp', 'U', 'n', 'beta']
+        for i, (col, val) in enumerate(zip(cols, [Nx, Ny, tp, U, n, beta])):
+            group.insert(i, col, val)
+
         return group
 
     # MR_df = rho_df.groupby(['U', 'n', 'beta'], as_index=True ).apply(_calc_MR_group)
     MR_df = rho_df.groupby(['Nx', 'Ny', 'tp', 'U', 'n', 'beta'], as_index=True ).apply(_calc_MR_group)
     MR_df = MR_df.reset_index(drop=True) # kept this bc it makes getting U, beta, n convenient
+    MR_df['Nx'] = MR_df['Nx'].astype(int)
+    MR_df['Ny'] = MR_df['Ny'].astype(int)
     return MR_df
 
 def calc_MR(rho, rho_err, rho_B0, rho_B0_err):
@@ -183,7 +217,7 @@ def _resolve_param(df, value, name):
         raise ValueError(f"df contains multiple {name} values, must specify {name}.")
     return df[name].iloc[0]
 
-def plot_dc_sig_B(df, nfluxes, n, U, betas, mode, Nx=None, Ny=None, tp=None, ylim=None, xlim=None, ax=None, show_legend=True, color_dict=None, style={}):
+def plot_dc_sig_B(df, nfluxes, n, U, betas, mode, Nx=None, Ny=None, tp=None, ylim=None, xlim=None, ax=None, show_legend=True, color_dict=None, labels=None,style={}):
     if mode=='xx':
         sig_label = 'sig_xx'
         y_label = rf'$\sigma_{{xx}}$ $[e^2/\hbar]$'
@@ -203,7 +237,7 @@ def plot_dc_sig_B(df, nfluxes, n, U, betas, mode, Nx=None, Ny=None, tp=None, yli
         sig_errs = df_subset[sig_label+'_err']
         Bs_plot = df_subset['nflux']/(Nx*Ny)
         # ax.errorbar(Bs_plot, sigs, yerr=sig_errs, label=rf'$\beta$={beta}', marker='o', markersize=2, color = color_dict[beta], elinewidth=1, capsize=0.8, **style)
-        ax.errorbar(Bs_plot, sigs, yerr=sig_errs, label=rf'$\beta$={beta}', color = color_dict[beta], **style)
+        ax.errorbar(Bs_plot, sigs, yerr=sig_errs, label=rf'$\beta$={beta}' if labels is None else labels[k], color = color_dict[beta], **style)
         
     if show_legend: ax.legend()
     plt.tight_layout()
@@ -272,7 +306,7 @@ def plot_rho_B(df, nfluxes, ns, Us, betas,  Nx=None, Ny=None, tp=None, mode='rho
 
     plt.tight_layout()
 
-def plot_MR(df, nfluxes, ns, Us, betas, Nx=None, Ny=None, tp=None, mode='rho', shared_axes=True, ylim=None, xlim=None, suptitle='', calc_fit=False, loglog=False, fmt='-', ax=None, show_legend=True, show_title=True, labels=None, colors=None):
+def plot_MR(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, mode='rho', ylim=None, xlim=None, suptitle='', calc_fit=False, loglog=False, fmt='-', ax=None, show_legend=True, show_title=True, labels=None, colors=None, color_dict=None, style={}):
     # modes can be rho, proxy1, proxy2
     if mode=='rho':
         MR_label='MR'
@@ -285,80 +319,53 @@ def plot_MR(df, nfluxes, ns, Us, betas, Nx=None, Ny=None, tp=None, mode='rho', s
         y_label = r'$MR_{2}$ [%]'
     else:
         pass
+    x_label = '$B$ $[\Phi_0/a^2]$'
 
-    Nx = _resolve_param(df, Nx, "Nx")
-    Ny = _resolve_param(df, Ny, "Ny")
-    tp = _resolve_param(df, tp, "tp")
+    Nx, Ny, tp, color_dict, ax = _setup_plot(df, nfluxes, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
 
-    if colors is None:
-        colors = sns.color_palette('husl', len(betas))
-    if len(Us)==1 and len(ns)==1:
-        figsize = (default_figsize[0], default_figsize[1]*1.5)
-    else:
-        figsize = (default_figsize[0]*len(ns)*0.7, default_figsize[1]*1.3*len(Us))
-        # figsize = (default_figsize[0]*len(ns)*0.9, default_figsize[1]*1.2*len(Us))
-    if ax is None:
-        fig, ax = plt.subplots(nrows=len(Us), ncols = len(ns), figsize=figsize, sharey=True)
-    ax = np.reshape(ax, (len(Us), len(ns)))
-
-    if xlim is None:
-        x_min = np.min(nfluxes)/(Nx*Ny)
-        x_max = np.max(nfluxes)/(Nx*Ny)
-        xlim = [x_min-(x_max-x_min)*0.1, x_max+(x_max-x_min)*0.1]
+    # if xlim is None:
+    #     x_min = np.min(nfluxes)/(Nx*Ny)
+    #     x_max = np.max(nfluxes)/(Nx*Ny)
+    #     xlim = [x_min-(x_max-x_min)*0.1, x_max+(x_max-x_min)*0.1]
     
-    for i, U in enumerate(Us):
+    if calc_fit:
+        print("Fitting MRs to power law A*x^B")
+        print(f"{'n':>6}  {'U':>4}  {'beta':>4}  {'A':>10} ± {'dA':<10}  {'B':>10} ± {'dB':<10}")
+        print("-" * 84)
+    for i, beta in enumerate(betas):
+        # df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n) & (df['nflux'].isin(nfluxes)) & (df['nflux']/(Nx*Ny) < xlim[1])].sort_values(by='nflux').reset_index()
+        df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n) & (df['nflux'].isin(nfluxes))].sort_values(by='nflux').reset_index()
+        if df_subset.empty:
+            continue
+        MRs = df_subset[MR_label]*100
+        MR_errs = df_subset[MR_label+'_err']*100
+        Bs_plot = df_subset['nflux']/(Nx*Ny)
+        lw = 1 if ':' in fmt else 0.75
+        ax.errorbar(Bs_plot, MRs, yerr=MR_errs, label=rf'$\beta$={beta}' if labels is None else labels[i], color=color_dict[beta], **style)
+        
+        if loglog:
+            ax.set_yscale('log', nonpositive='clip')
+            ax.set_xscale('log', nonpositive='clip')
+
+        # report fit coefficients
         if calc_fit:
-            print("Fitting MRs to power law A*x^B")
-            print(f"{'n':>6}  {'U':>4}  {'beta':>4}  {'A':>10} ± {'dA':<10}  {'B':>10} ± {'dB':<10}")
-            print("-" * 84)
-        for j, n in enumerate(ns):
-            for k, beta in enumerate(betas):
-                # df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n) & (df['nflux'].isin(nfluxes)) & (df['nflux']/(Nx*Ny) < xlim[1])].sort_values(by='nflux').reset_index()
-                df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n) & (df['nflux'].isin(nfluxes))].sort_values(by='nflux').reset_index()
-                if df_subset.empty:
-                    continue
-                MRs = df_subset[MR_label]*100
-                MR_errs = df_subset[MR_label+'_err']*100
-                Bs_plot = df_subset['nflux']/(Nx*Ny)
-                lw = 1 if ':' in fmt else 0.75
-                (_, caps, bars) = ax[i, j].errorbar(Bs_plot, MRs, yerr=MR_errs, label=labels[k] if labels else rf'$\beta$={beta}', fmt=fmt, lw=lw, elinewidth=1, color = colors[k], capsize=0.8)
-                if loglog:
-                    ax[i, j].set_yscale('log', nonpositive='clip')
-                    ax[i, j].set_xscale('log', nonpositive='clip')
-
-                # report fit coefficients
-                if calc_fit:
-                    def fit_func(logx, logA, C):
-                        return logA + C*logx
-                    mask = Bs_plot > 0 # exclude (0,0) point
-                    params, cov = scipy.optimize.curve_fit(fit_func, np.log(Bs_plot[mask]/(8*8)), np.log(MRs[mask]), p0=[1, 2], sigma=MR_errs[mask]/MRs[mask], absolute_sigma=True)
-                    perr = np.sqrt(np.diag(cov))
-                    
-                    print(f"{n:>6}  {U:>4}  {beta:>4}  {np.exp(params[0]):10.2f} ± {np.exp(params[0])*perr[0]:<10.2f}  "
-                    f"{params[1]:10.3f} ± {perr[1]:<10.3f}")
-                
-            # Remove x and y axis labels from interior axes
-            if shared_axes:
-                if j!=0: ax[i, j].tick_params(labelleft=False)
-                if i!=ax.shape[0]-1: ax[i, j].tick_params(labelbottom=False)
-            if ylim is not None:
-                ax[i, j].set_ylim(*ylim)
-            if xlim is not None:
-                ax[i, j].set_xlim(*xlim)
-                
-            ax[i, j].tick_params(axis='both', which='major', labelsize=12)
-
-            # Make background grey if no data
-            if not (ax[i, j].lines or ax[i, j].collections):
-                ax[i, j].set_facecolor('gainsboro')
-    
-    # Plot labels
-    for j, n in enumerate(ns):
-        ax[-1, j].set_xlabel(r'$B$ $[\Phi_0/a^2]$', fontsize=12)
-        if show_title: ax[0, j].set_title(f'n = {n}', fontsize=14)
-    for i, U in enumerate(Us):
-        ax[i, 0].set_ylabel(y_label, fontsize=12)
-        if show_title: ax[i, -1].annotate(f'U = {U}', (1.02, 0.48), rotation=270, xycoords='axes fraction', fontsize=14)
+            # changed this from log log bc sometimes the MR can be slightly negatieve
+            def fit_func(x, A, B):
+                return A*x**B
+            mask = Bs_plot > 0 # exclude (0,0) point
+            params, cov = scipy.optimize.curve_fit(fit_func, Bs_plot[mask], MRs[mask], p0=[10, 2], sigma=MR_errs[mask]/MRs[mask], absolute_sigma=True)
+            perr = np.sqrt(np.diag(cov))
+            
+            print(f"{n:>6}  {U:>4}  {beta:>4}  {params[0]:10.2f} ± {params[0]*perr[0]:<10.2f}  "
+            f"{params[1]:10.3f} ± {perr[1]:<10.3f}")
+        
+    # Remove x and y axis labels from interior axes
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+        
+    ax.tick_params(axis='both', which='major', labelsize=12)
     if show_legend: ax[0,-1].legend(labelspacing = 0.35, fontsize=9)
     
     plt.tight_layout()
@@ -496,21 +503,20 @@ def plot_MR_T(df, nfluxes, ns, Us, betas, Nx=None, Ny=None, tp=None, mode='xx', 
         # ax[i, -1].annotate(f'U = {U}', (1.02, 0.48), rotation=270, xycoords='axes fraction', fontsize=14)
     if show_legend: ax[0,-1].legend(labelspacing = 0.35, fontsize=9)
 
-def plot_doubleocc_T(df, nfluxes, n, U, betas,  Nx=None, Ny=None, tp=None, ylim=None, xlim=None, ax=None, show_legend=True, color_dict=None, labels=None, style={}):
+def plot_doubleocc_T(df, nflux, n, U, betas,  Nx=None, Ny=None, tp=None, ylim=None, xlim=None, ax=None, show_legend=True, color_dict=None, label=None, style={}):
     x_label = 'T/t'
     y_label = r'$\langle n_{\uparrow} n_{\downarrow} \rangle$'
     y_label = r'$\langle n_{\uparrow}\! n_{\downarrow} \rangle$'
-    Nx, Ny, tp, color_dict, ax = _setup_plot(df, nfluxes, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
+    Nx, Ny, tp, color_dict, ax = _setup_plot(df, [nflux], x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
 
-    for k, nflux in enumerate(nfluxes):
-        df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['nflux']==nflux) & (df['n']==n) & (df['beta'].isin(betas))].sort_values(by='beta', ascending=False)
-        if df_subset.empty:
-            continue
-        double_occs = df_subset['double_occ']
-        double_occ_errs = df_subset['double_occ_err']
-        betas_plot = df_subset['beta']
-        Ts_plot = 1/betas_plot
-        ax.errorbar(Ts_plot, double_occs, yerr=double_occ_errs, label=labels[k] if labels is not None else rf'$B$={nflux}/{Nx*Ny}', color=color_dict[nflux], **style)
+    df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['nflux']==nflux) & (df['n']==n) & (df['beta'].isin(betas))].sort_values(by='beta', ascending=False)
+    if df_subset.empty:
+        return
+    double_occs = df_subset['double_occ']
+    double_occ_errs = df_subset['double_occ_err']
+    betas_plot = df_subset['beta']
+    Ts_plot = 1/betas_plot
+    ax.errorbar(Ts_plot, double_occs, yerr=double_occ_errs, label=label, **style)
     
     if show_legend: ax.legend()
 
@@ -544,7 +550,7 @@ def plot_sig_spectra(pickle_folder, nflux, n, U, betas, sigs_plot=['re_sig_xx', 
 def plot_kohler2(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=False, ax=None, suptitle='', xlim=None, ylim=None, show_legend=True, color_dict=None, labels=None, style={}):
     x_label = r'$B/\rho_0$'
     y_label = 'MR [%]'
-    Nx, Ny, tp, color_dict, ax = _setup_plot(df, nfluxes, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
+    Nx, Ny, tp, color_dict, ax = _setup_plot(df, betas, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')
 
     if calc_fit:
         print("Fitting MRs to power law A*x^B")
@@ -581,16 +587,132 @@ def plot_kohler2(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=F
             ax.set_xlim(*xlim)
 
         if calc_fit:
-            def fit_func(logx, logA, C):
-                return logA + C*logx
-            mask = nfluxes_plot > 0 # exclude (0,0) point
-            params, cov = scipy.optimize.curve_fit(fit_func, np.log(nfluxes_plot[mask]/(Nx*Ny)/rho_B0), np.log(MRs[mask]), p0=[1, 2], sigma=MR_errs[mask]/MRs[mask], absolute_sigma=True)
+            # changed this from log log bc sometimes the MR can be slightly negatieve
+            def fit_func(x, A, B):
+                return A*x**B
+            mask = Bs_plot > 0 # exclude (0,0) point
+            params, cov = scipy.optimize.curve_fit(fit_func, Bs_plot[mask]/rho_B0, MRs_plot[mask], p0=[10, 2], sigma=MR_errs_plot[mask]/MRs_plot[mask], absolute_sigma=True)
             perr = np.sqrt(np.diag(cov))
             
-            print(f"{n:>6}  {U:>4}  {beta:>4}  {np.exp(params[0]):10.2f} ± {np.exp(params[0])*perr[0]:<10.2f}  "
+            print(f"{n:>6}  {U:>4}  {beta:>4}  {params[0]:10.2f} ± {params[0]*perr[0]:<10.2f}  "
             f"{params[1]:10.3f} ± {perr[1]:<10.3f}")
 
     if show_legend: ax.legend()
+
+# def plot_MR(df, nfluxes, ns, Us, betas, Nx=None, Ny=None, tp=None, mode='rho', shared_axes=True, ylim=None, xlim=None, suptitle='', calc_fit=False, loglog=False, fmt='-', ax=None, show_legend=True):
+def plot_kohler_modified(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=False, ax=None, suptitle='', xlim=None, ylim=None, show_legend=True, color_dict=None, labels=None, style={}):
+    # modified Kohler scaling: MR vs tan^2(theta_H) = (sigma_xy/sigma_xx)^2
+
+    x_label = r'$\tan^2\theta_H$'
+    y_label = 'MR [%]'
+    Nx, Ny, tp, color_dict, ax = _setup_plot(df, betas, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')
+
+    if calc_fit:
+        print("Fitting MRs to power law A*x^B")
+        print(f"{'n':>6}  {'U':>4}  {'beta':>4}  {'A':>10} ± {'dA':<10}  {'B':>10} ± {'dB':<10}")
+        print("-" * 84)
+
+    for k, beta in enumerate(betas):
+        # Get subset of df for specific U, beta, n
+        df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n)].sort_values(by='nflux').reset_index() # do not change this lol
+        if df_subset.empty:
+            continue
+
+        MRs = df_subset['MR']*100
+        MR_errs = df_subset['MR_err']*100
+
+        mask = df_subset['nflux'].isin(nfluxes)
+        nfluxes_plot = np.array(df_subset['nflux'])[mask]
+
+        sig_xx_vals = np.array(df_subset['sig_xx'])[mask]
+        sig_xx_errs = np.array(df_subset['sig_xx_err'])[mask]
+        sig_xy_vals = np.array(df_subset['sig_xy'])[mask]
+        sig_xy_errs = np.array(df_subset['sig_xy_err'])[mask]
+
+        # tan(theta_H) = sigma_xy / sigma_xx (equivalently rho_xy/rho_xx), propagate errors via ufloat
+        sig_xx_uc = np.array([ufloat(v, e) for v, e in zip(sig_xx_vals, sig_xx_errs)])
+        sig_xy_uc = np.array([ufloat(v, e) for v, e in zip(sig_xy_vals, sig_xy_errs)])
+        tan_theta_H_uc = sig_xy_uc / sig_xx_uc
+        tan2_theta_H_uc = tan_theta_H_uc**2
+
+        tan2_theta_H_plot = np.array([x.nominal_value for x in tan2_theta_H_uc])
+        tan2_theta_H_errs = np.array([x.std_dev for x in tan2_theta_H_uc])
+
+        MRs_plot = np.array(MRs)[mask]
+        MR_errs_plot = np.array(MR_errs)[mask]
+
+        ax.errorbar(tan2_theta_H_plot, MRs_plot, yerr=MR_errs_plot, xerr=tan2_theta_H_errs, label=rf'$\beta$={beta}' if labels is None else labels[k], color=color_dict[beta], **style)
+        # ax[i, j].set_yscale('log', nonpositive='clip')
+        # ax[i, j].set_xscale('log', nonpositive='clip')
+
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+
+        if calc_fit:
+            # changed this from log log bc sometimes the MR can be slightly negative
+            def fit_func(x, A, B):
+                return A*x**B
+            mask_fit = tan2_theta_H_plot > 0  # exclude (0,0) point
+            params, cov = scipy.optimize.curve_fit(fit_func, tan2_theta_H_plot[mask_fit], MRs_plot[mask_fit], p0=[10, 2], sigma=MR_errs_plot[mask_fit]/MRs_plot[mask_fit], absolute_sigma=True)
+            perr = np.sqrt(np.diag(cov))
+
+            print(f"{n:>6}  {U:>4}  {beta:>4}  {params[0]:10.2f} ± {perr[0]:<10.2f}  "
+            f"{params[1]:10.3f} ± {perr[1]:<10.3f}")
+
+    if show_legend: ax.legend()
+
+### trying to test for H/T scaling: plot rho(H/T)/T vs. H/T, should collapse I guess lmfao
+# similar to kohler: plot different temperature curves, just slightly different quantities
+def plot_HT(df, nfluxes, n, U, betas, Nx=None, Ny=None, tp=None, calc_fit=False, ax=None, suptitle='', xlim=None, ylim=None, show_legend=True, color_dict=None, labels=None, style={}):
+    x_label = r'$B/T$'
+    y_label = r'$\rho(B, T)/T$'
+    Nx, Ny, tp, color_dict, ax = _setup_plot(df, betas, x_label, y_label, Nx=Nx, Ny=Ny, tp=tp, color_dict=color_dict, ax=ax, palette='tab10')    
+    print(color_dict)
+
+    if calc_fit:
+        print("Fitting MRs to power law A*x^B")
+        print(f"{'n':>6}  {'U':>4}  {'beta':>4}  {'A':>10} ± {'dA':<10}  {'B':>10} ± {'dB':<10}")
+        print("-" * 84)
+    
+    for k, beta in enumerate(betas):
+        # Get subset of df for specific U, beta, n
+        df_subset = df[(df['Nx']==Nx) & (df['Ny']==Ny) & (df['tp']==tp) & (df['U']==U) & (df['beta']==beta) & (df['n']==n)].sort_values(by='nflux').reset_index() # do not change this lol
+        if df_subset.empty:
+            continue
+            
+        mask = df_subset['nflux'].isin(nfluxes)
+        nfluxes_plot = np.array(df_subset['nflux'])[mask]
+        Bs_plot = nfluxes_plot/(Nx*Ny)
+
+        T = 1/beta
+        rhos_plot = df_subset['rho_xx'][mask]
+        rho_errs_plot = df_subset['rho_xx_err'][mask]
+
+        ax.errorbar(Bs_plot/T, rhos_plot/T, yerr=rho_errs_plot/T, label=rf'$\beta$={beta}' if labels is None else labels[k], color=color_dict[beta], **style)
+        # ax.errorbar(Bs_plot/T, rhos_plot/T, color=color_dict[beta], **style)
+        # ax[i, j].set_yscale('log', nonpositive='clip')
+        # ax[i, j].set_xscale('log', nonpositive='clip')
+
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+
+        if calc_fit:
+            # changed this from log log bc sometimes the MR can be slightly negatieve
+            def fit_func(x, A, B):
+                return A*x**B
+            mask = Bs_plot > 0 # exclude (0,0) point
+            params, cov = scipy.optimize.curve_fit(fit_func, Bs_plot[mask]/rho_B0, MRs_plot[mask], p0=[10, 2], sigma=MR_errs_plot[mask]/MRs_plot[mask], absolute_sigma=True)
+            perr = np.sqrt(np.diag(cov))
+            
+            print(f"{n:>6}  {U:>4}  {beta:>4}  {params[0]:10.2f} ± {params[0]*perr[0]:<10.2f}  "
+            f"{params[1]:10.3f} ± {perr[1]:<10.3f}")
+
+    if show_legend: ax.legend()
+
 
 def plot_sigma_xy(df, Us, ns, betas, Bs, ylims=None, xlim=None, suptitle=''):
     # wait this doesn't make sense bc there's so many spectra per temperature lol idk

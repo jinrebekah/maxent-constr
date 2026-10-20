@@ -11,7 +11,8 @@ import os
 if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
     sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
 else:
-    sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
+    # sys.path.append('/Users/rebekahjin/Documents/Devereaux Group/dqmc-dev/util')
+    sys.path.append('/Users/rebjin/Documents/Devereaux Group/dqmc-dev/util')
 import util
 import jqjq
 
@@ -471,7 +472,7 @@ def plot_sigma(sig, ax, sigma_name, bs_idx=None, bs_mode='errorbar', color='#0C5
         al_method = 'smooth' if settings['smooth_al'] else 'default'
         ax.annotate('O: ' + method + '\n' + r'$K_{xx}$: ' + K +'\n'+r'$\alpha$: '+ al_method, (0.04, 0.80), xycoords='axes fraction', fontsize=8, color='gray')
         # ax.annotate(f'O: {opt_method_dict[method]} \n$K_{xx}$: {K}', (0.03, 0.89), xycoords='axes fraction')
-    ax.set_xlabel(r'$\omega$')
+    ax.set_xlabel(r'$\omega /t$')
     ax.set_ylabel(sigma_name_dict[sigma_name])
 
     # ax.set_title(rf'U = {sig.U}, $\beta$ = {sig.beta}')

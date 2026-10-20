@@ -10,7 +10,8 @@ import os
 if os.path.exists('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util'):
     sys.path.append('/oak/stanford/orgs/simes/rebjin/dqmc-dev/util')
 else:
-    sys.path.append('/Users/rebekahjin/Documents/devereaux_group/dqmc-dev/util')
+    sys.path.append('/Users/rebjin/Documents/devereaux_group/dqmc-dev/util/')
+    
 import util
 
 from scipy.interpolate import CubicSpline
