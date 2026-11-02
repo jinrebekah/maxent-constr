@@ -28,21 +28,17 @@ from scipy.interpolate import CubicSpline
 default_figsize = plt.rcParams['figure.figsize']
 
 class sigma:
-    def __init__(self, path=None, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}):
+    def __init__(self, chi_xx, chi_xy, sigma_type=None, ws=None, dws=None, bs=0, settings_xx={}, settings_xy={}, metadata={}):
+        # this is the version specifically for reverse engineering crap lol
+
         # Store simulation parameters
-        self.path = path
-        self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
-            path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
-        )
+        # self.U, self.Ny, self.Nx, self.beta, self.L, self.tp = util.load_firstfile(
+        #     path, "metadata/U", "metadata/Nx", "metadata/Ny", "metadata/beta", "params/L", "metadata/t'"
+        # )
+        self.metadata = metadata # gonna leave this pretty flexible bc prob has to accomodate a few diff options
+        self.beta, self.L = metadata['beta'], metadata['L']
         self.T = 1/self.beta
         self.taus = np.linspace(0, self.beta, self.L + 1)
-        # get n from path
-        
-        pattern = r"nflux(\d+)/n(-?[\d.]+)"
-        match = re.search(pattern, path)
-        if match:
-            self.nflux = int(match.group(1))
-            self.n = float(match.group(2))
 
         self.ws = ws
         self.dws = dws
@@ -50,8 +46,11 @@ class sigma:
         self.bs = bs
         self.sigma_type = sigma_type
 
-        self.jjq0, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
-        self.chi_xx, self.chi_xy = self._prep_chi()
+        # self.jjq0, self.sign, self.n_sample, self.n_bin = self._load_data(path) # note: sign and jj are already divided by n_sample
+        # self.chi_xx, self.chi_xy = self._prep_chi()
+        self.n_bin = len(chi_xx)
+        self.chi_xx, self.chi_xy = chi_xx, chi_xy
+        self.sign = np.ones(self.n_bin)# for now let's just pretend there's no sign problem lol, since it's actually not that bad lol. it mostly manifests in the variability of the data anyway
 
         # Set solver settings (stupid)
         settings_xx_default = {
@@ -77,7 +76,7 @@ class sigma:
         self.input_xy = self._get_input(self.settings_xy)
 
         # Solve for sigma
-        if sigma_type == 'xx' or self.nflux==0:
+        if sigma_type == 'xx':
             self.calc_sigma_xx()
         if sigma_type == 'xy':
             self.calc_sigma_xy()
@@ -350,12 +349,12 @@ def calc_sig_xy_0(sig):
     sig_xy_err = np.std(sig_xy_0_bs)
 
     ### temporary alternative test: is something going wrong with my kramer's kronig? try just obtaining D.C. value directly from im...
-    im_sig_xy_bs = np.array(sig.results['im_sig_xy'].tolist())
-    ws = sig.ws
-    integral = np.trapz(im_sig_xy_bs/ws, x=ws, axis=1)/np.pi
+    # im_sig_xy_bs = np.array(sig.results['im_sig_xy'].tolist())
+    # ws = sig.ws
+    # integral = np.trapz(im_sig_xy_bs/ws, x=ws, axis=1)/np.pi
     
-    print("Comparing DC sig values:")
-    print(sig_xy_0, np.mean(integral))
+    # print("Comparing DC sig values:")
+    # print(sig_xy_0, np.mean(integral))
     
     return sig_xy_0, sig_xy_err
 
@@ -425,10 +424,10 @@ def plot_results(sig, sig_names=None, bs_idx=None, bs_mode='errorbar', xlim=None
         else:
             for i in range(num_plots): ax[i].set_xlim(xlim)
     
-    try:
-        fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
-    except:
-        fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    # try:
+    #     fig.suptitle(rf'nflux = {sig.nflux}, n = {sig.n}, U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
+    # except:
+    #     fig.suptitle(rf'U = {sig.U}, $\beta$ = {sig.beta}, bs = {sig.bs}')
     # plt.tight_layout()
     plt.show()
 

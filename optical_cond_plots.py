@@ -63,6 +63,7 @@ ERRORBAR_STYLE = dict(
     elinewidth=1.5,
     capsize=0.8,
 )
+plt.rcParams['figure.dpi'] = 200
 # the multi-panel cells below size themselves as default_figsize[0]*n, so this must be read
 # after the rcParams update above
 default_figsize = plt.rcParams['figure.figsize']
